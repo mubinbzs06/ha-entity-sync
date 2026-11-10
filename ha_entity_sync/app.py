@@ -225,7 +225,7 @@ def scan():
                 entity_id = match.group(0)
                 start = max(0, match.start() - 100)
                 end = min(len(line), match.end() + 100)
-                evidence = {"line": line_no, "text": line[start:end].strip()[:500]}
+                evidence = {"line": line_no, "text": line[start:end].strip()[:500], "full_text": line[:10000], "full_text_truncated": len(line) > 10000}
                 if entity_id in known:
                     key = (entity_id, rel)
                     entry = references.setdefault(key, {
