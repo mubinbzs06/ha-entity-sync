@@ -286,7 +286,7 @@ function exportData(){
  return {exported_at:new Date().toISOString(),last_scanned_at:report?.last_scanned_at||null,read_only:true,active_dependencies:active,needs_review_references:review,stale_candidates:report?.potentially_stale||[]};
 }
 function downloadFile(name,type,content){
- const blob=new Blob([content],{type});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
+ const blob=new Blob([content],{type});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 $('exportJson').addEventListener('click',()=>{if(report)downloadFile('ha-entity-sync-export.json','application/json;charset=utf-8',JSON.stringify(exportData(),null,2));});
 $('exportCsv').addEventListener('click',()=>{
