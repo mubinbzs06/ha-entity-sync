@@ -86,6 +86,33 @@ class ScannerTests(unittest.TestCase):
         self.assertEqual(report["reference_records"], len(report["results"]))
         self.assertEqual(report["reference_hits"], sum(x["count"] for x in report["results"]))
 
+    def test_spook_style_suggestion_uses_same_domain_and_0_8_cutoff(self):
+        suggestion = app.suggest_missing_entity_replacement(
+            "sensor.living_room_temperatur",
+            {"sensor.living_room_temperature", "binary_sensor.living_room_temperature"},
+        )
+        self.assertEqual(suggestion["entity_id"], "sensor.living_room_temperature")
+        self.assertEqual(suggestion["confidence"], "name_similarity_only")
+        self.assertEqual(suggestion["similarity_cutoff"], 0.8)
+
+    def test_spook_style_suggestion_does_not_cross_domains(self):
+        suggestion = app.suggest_missing_entity_replacement(
+            "sensor.living_room_motion",
+            {"binary_sensor.living_room_motion"},
+        )
+        self.assertIsNone(suggestion["entity_id"])
+        self.assertEqual(suggestion["confidence"], "none")
+
+    def test_deleted_entity_history_takes_precedence_over_fuzzy_match(self):
+        suggestion = app.suggest_missing_entity_replacement(
+            "sensor.living_room_temperatur",
+            {"sensor.living_room_temperature"},
+            {"sensor.living_room_temperatur": {"platform": "mqtt", "modified_at": "2026-11-01T00:00:00+00:00"}},
+        )
+        self.assertEqual(suggestion["method"], "deleted_entity_history")
+        self.assertIsNone(suggestion["entity_id"])
+        self.assertEqual(suggestion["deleted_platform"], "mqtt")
+
     def test_conversation_domain_is_ignored_for_stale_candidates(self):
         (self.root / "automations.yaml").write_text(
             "entity_id: conversation.home_assistant\n", encoding="utf-8"
