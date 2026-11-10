@@ -1,8 +1,8 @@
-# HA Entity Sync — Build 2.1
+# HA Entity Sync — Build 2.2
 
-Version 0.2.1 remains strictly read-only.
+Version 0.2.2 remains strictly read-only.
 
-## Scan scope (tightened)
+## Long-list navigation\n\n- The entity search stays pinned at the top while scrolling long results.\n- Naming review is sorted alphabetically and grouped by first letter.\n- A right-side A–Z rail jumps directly to a letter when the naming list is long.\n- A floating Top control appears after scrolling down.\n\n## Scan scope (tightened)
 
 The scanner now searches user-maintained Home Assistant configuration rather than recursively treating all application files as dependencies.
 
