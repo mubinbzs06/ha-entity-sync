@@ -16,6 +16,8 @@ from urllib.parse import parse_qs, urlparse
 CONFIG = Path("/homeassistant")
 REGISTRY = CONFIG / ".storage" / "core.entity_registry"
 MAX_FILE_BYTES = 5 * 1024 * 1024
+MAX_SCAN_FILES = 5000
+MAX_SCAN_BYTES = 100 * 1024 * 1024
 VERSION = "0.2.12"
 PORT = 8099
 SCAN_CACHE_SECONDS = 60
@@ -86,6 +88,16 @@ def is_backup_path(path):
     return False
 
 
+def safe_config_file(path):
+    """Reject symlinks and files resolving outside the mounted HA config."""
+    try:
+        if path.is_symlink():
+            return False
+        return path.resolve(strict=True).is_relative_to(CONFIG.resolve())
+    except (OSError, RuntimeError):
+        return False
+
+
 def candidate_files():
     for root, dirs, names in os.walk(CONFIG):
         root_path = Path(root)
@@ -106,19 +118,20 @@ def candidate_files():
                 if is_backup_path(path) or name in SKIP_NAMES:
                     continue
                 try:
-                    if path.is_file() and path.stat().st_size <= MAX_FILE_BYTES:
+                    if safe_config_file(path) and path.is_file() and path.stat().st_size <= MAX_FILE_BYTES:
                         yield path
                 except OSError:
                     continue
             continue
 
-        dirs[:] = [
+        dirs[:] = sorted(
             d for d in dirs
             if d.lower() not in SKIP_DIRS
             and not is_backup_path(relative_root / d)
-        ]
+            and not (root_path / d).is_symlink()
+        )
 
-        for name in names:
+        for name in sorted(names):
             path = root_path / name
             rel = path.relative_to(CONFIG)
             lower_name = name.lower()
@@ -129,7 +142,7 @@ def candidate_files():
             if path.suffix.lower() not in ALLOWED_SUFFIXES:
                 continue
             try:
-                if path.is_file() and path.stat().st_size <= MAX_FILE_BYTES:
+                if safe_config_file(path) and path.is_file() and path.stat().st_size <= MAX_FILE_BYTES:
                     yield path
             except OSError:
                 continue
@@ -253,7 +266,7 @@ def fetch_live_states():
     )
     try:
         with urllib.request.urlopen(request, timeout=8) as response:
-            status = getattr(response, "status", response.getcode())
+            status = response.status if hasattr(response, "status") else response.getcode()
             print(f"HA Entity Sync: GET {endpoint} returned HTTP {status}", flush=True)
             payload = json.loads(response.read().decode("utf-8"))
         if not isinstance(payload, list):
@@ -461,13 +474,30 @@ def scan():
     references = {}
     candidates = {}
     scanned = 0
+    scanned_bytes = 0
+    scan_warnings = []
 
     for path in candidate_files():
+        if scanned >= MAX_SCAN_FILES:
+            scan_warnings.append(
+                f"Scan stopped at the safety limit of {MAX_SCAN_FILES} files; remaining files were not checked."
+            )
+            break
         try:
+            file_size = path.stat().st_size
+            if scanned_bytes + file_size > MAX_SCAN_BYTES:
+                scan_warnings.append(
+                    f"Scan stopped at the safety limit of {MAX_SCAN_BYTES // (1024 * 1024)} MB; remaining files were not checked."
+                )
+                break
+            if not safe_config_file(path):
+                scan_warnings.append(f"Skipped a symlink or out-of-scope file: {path.relative_to(CONFIG)}")
+                continue
             lines = path.read_text(encoding="utf-8").splitlines()
         except (OSError, UnicodeError):
             continue
         scanned += 1
+        scanned_bytes += file_size
         rel = str(path.relative_to(CONFIG))
         category = classify_reference(Path(rel))
         for line_no, line in enumerate(lines, 1):
@@ -556,6 +586,8 @@ def scan():
         "entities_found": len(entity_ids),
         "registered_entities": len(entity_ids),
         "files_scanned": scanned,
+        "bytes_scanned": scanned_bytes,
+        "scan_warnings": scan_warnings,
         "entities_with_references": len(referenced_entities),
         "entities_with_any_references": len(referenced_entities),
         "entities_with_active_references": active_reference_count,
@@ -613,8 +645,9 @@ class Handler(BaseHTTPRequestHandler):
         route = urlparse(self.path).path
         if route == "/api/scan":
             force = parse_qs(urlparse(self.path).query).get("force", ["0"])[0] == "1"
-            payload = json.dumps(get_scan_report(force=force)).encode()
-            self.send_response(200)
+            report = get_scan_report(force=force)
+            payload = json.dumps(report).encode()
+            self.send_response(200 if report.get("ok") else 503)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
@@ -643,23 +676,41 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(page)
         elif route == "/health":
-            self.send_response(200)
+            ready = REGISTRY.is_file()
+            payload = json.dumps({
+                "ok": ready,
+                "version": VERSION,
+                "registry_available": ready,
+                "read_only": True,
+            }).encode()
+            self.send_response(200 if ready else 503)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
-            self.wfile.write(b"ok")
+            self.wfile.write(payload)
         else:
             self.send_error(404)
 
     def do_POST(self):
         self.send_error(405, "Read-only application: POST is disabled")
 
+    def end_headers(self):
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
     def log_message(self, fmt, *args):
         print("HA Entity Sync:", fmt % args)
 
 
+class HAEntitySyncHTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
+    block_on_close = False
+
+
 if __name__ == "__main__":
-    server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    server = HAEntitySyncHTTPServer(("0.0.0.0", PORT), Handler)
     print(f"HA Entity Sync version {VERSION} starting on 0.0.0.0:{PORT} (read-only; scan cache {SCAN_CACHE_SECONDS}s)", flush=True)
     print(f"HA Entity Sync listening on 0.0.0.0:{PORT}", flush=True)
-    print("HA Entity Sync: performing startup scan", flush=True)
-    get_scan_report(force=True)
+    print("HA Entity Sync: ready; scans start when the panel is opened", flush=True)
     server.serve_forever()
