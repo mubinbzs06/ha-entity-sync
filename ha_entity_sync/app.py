@@ -8,6 +8,8 @@ import time
 import urllib.request
 import urllib.error
 from datetime import datetime, timezone
+
+from recovery import RecoveryError, load_audit, recover_entity_pair, rollback_entity_recovery
 from collections import Counter
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -18,7 +20,7 @@ REGISTRY = CONFIG / ".storage" / "core.entity_registry"
 MAX_FILE_BYTES = 5 * 1024 * 1024
 MAX_SCAN_FILES = 5000
 MAX_SCAN_BYTES = 100 * 1024 * 1024
-VERSION = "0.2.13"
+VERSION = "0.2.14"
 PORT = 8099
 SCAN_CACHE_SECONDS = 60
 IGNORED_STALE_DOMAINS = {"conversation"}
@@ -595,6 +597,7 @@ def scan():
         "readded_detection_note": readded_note,
         "clean_name_suggestions": clean_name_suggestions,
         "clean_name_suggestions_count": len(clean_name_suggestions),
+        "recovery_history": load_audit()[-20:],
         "audit_note": "Potentially stale entries are candidates for review, not confirmed broken references."
     }
     print(
@@ -666,7 +669,8 @@ class Handler(BaseHTTPRequestHandler):
                 "ok": ready,
                 "version": VERSION,
                 "registry_available": ready,
-                "read_only": True,
+                "scan_read_only": True,
+                "recovery_enabled": True,
             }).encode()
             self.send_response(200 if ready else 503)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -677,7 +681,60 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404)
 
     def do_POST(self):
-        self.send_error(405, "Read-only application: POST is disabled")
+        route = urlparse(self.path).path
+        if route not in {"/api/recover", "/api/rollback"}:
+            self.send_error(405, "Only approved entity recovery actions are accepted")
+            return
+        origin = self.headers.get("Origin")
+        host = self.headers.get("Host")
+        if not origin or not host or urlparse(origin).netloc != host:
+            self.send_error(403, "Recovery requests must originate from this Home Assistant ingress page")
+            return
+        if self.headers.get("X-HA-Entity-Sync-Action") != "approve":
+            self.send_error(403, "Explicit recovery approval header is required")
+            return
+        if not (self.headers.get("Content-Type") or "").lower().startswith("application/json"):
+            self.send_error(415, "JSON request body required")
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            self.send_error(400, "Invalid request length")
+            return
+        if length <= 0 or length > 16384:
+            self.send_error(413, "Invalid recovery request size")
+            return
+        try:
+            request_data = json.loads(self.rfile.read(length).decode("utf-8"))
+            if not isinstance(request_data, dict):
+                raise ValueError("Request must be a JSON object")
+            if route == "/api/recover":
+                result = recover_entity_pair(
+                    str(request_data.get("old_entity_id") or ""),
+                    str(request_data.get("replacement_entity_id") or ""),
+                    fetch_live_states,
+                )
+            else:
+                result = rollback_entity_recovery(
+                    str(request_data.get("record_id") or ""),
+                    fetch_live_states,
+                )
+            status = 200 if result.get("ok") else 409
+        except (ValueError, UnicodeError) as err:
+            result = {"ok": False, "status": "invalid_request", "error": str(err)}
+            status = 400
+        except RecoveryError as err:
+            result = {"ok": False, "status": "blocked", "error": str(err)}
+            status = 409
+        except Exception as err:
+            result = {"ok": False, "status": "error", "error": f"{type(err).__name__}: {err}"}
+            status = 500
+        payload = json.dumps(result).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
 
     def end_headers(self):
         self.send_header("X-Content-Type-Options", "nosniff")
