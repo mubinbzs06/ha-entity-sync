@@ -96,6 +96,27 @@ class ScannerTests(unittest.TestCase):
         self.assertFalse(evidence["full_text_truncated"])
         self.assertLessEqual(len(evidence["text"]), 500)
 
+    def test_naming_suggestions_are_unique_advisory_and_keep_domain(self):
+        occupied = {
+            "sensor.bathroom_temperature_2",
+            "sensor.bathroom_temperature",
+        }
+        suggestions = app.suggest_entity_names(
+            "sensor.bathroom_temperature_sensor_2", occupied
+        )
+        self.assertTrue(suggestions)
+        self.assertTrue(all(item.startswith("sensor.") for item in suggestions))
+        self.assertEqual(len(suggestions), len(set(suggestions)))
+        self.assertNotIn("sensor.bathroom_temperature", suggestions)
+        self.assertNotIn("sensor.bathroom_temperature_sensor_2", suggestions)
+
+    def test_naming_suggestions_collapse_repeated_words(self):
+        suggestions = app.suggest_entity_names(
+            "light.kitchen_kitchen_ceiling_2",
+            {"light.kitchen_kitchen_ceiling_2"},
+        )
+        self.assertIn("light.kitchen_ceiling", suggestions)
+
     def test_naming_finding_exposes_entity_source_from_registry(self):
         registry = {
             "data": {
