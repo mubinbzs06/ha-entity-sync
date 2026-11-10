@@ -281,7 +281,7 @@ def line_update_evidence(reference, old_id, new_id):
                 "line": match.get("line"),
                 "category": reference.get("category"),
                 "before": before,
-                "after": before.replace(old_id, new_id),
+                "after": re.sub(r"(?<![A-Za-z0-9_])" + re.escape(old_id) + r"(?![A-Za-z0-9_])", new_id, before),
             })
     return updates
 
@@ -396,7 +396,7 @@ def build_clean_name_suggestions(registry, references):
             continue
         collision = proposed in occupied and proposed != entity_id
         confidence = "high" if reasons and not collision else "low" if collision else "medium"
-        refs = refs_by_id.get(entity_id, [])
+        refs = [ref for ref in refs_by_id.get(entity_id, []) if ref.get("category") in {"Dashboard", "Active configuration"}]
         updates = []
         for reference in refs:
             updates.extend(line_update_evidence(reference, entity_id, proposed))
