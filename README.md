@@ -4,7 +4,7 @@ A local Home Assistant OS app for **read-only entity reference auditing**.
 
 ## Current development build
 
-Version **0.2.5** scans user-maintained Home Assistant configuration and Lovelace dashboards. It excludes Home Assistant internals, integration/add-on implementation folders, backups, archives, databases, logs, secrets, and runtime data.
+Version **0.2.6** scans user-maintained Home Assistant configuration and Lovelace dashboards. It excludes Home Assistant internals, integration/add-on implementation folders, backups, archives, databases, logs, secrets, and runtime data.
 
 Entities created by integrations are still tracked in the entity registry and appear when your own dashboards or configuration reference them.
 
@@ -16,8 +16,9 @@ Entities created by integrations are still tracked in the entity registry and ap
 - **Back to entity** returns to the exact expanded entity/candidate.
 - Naming review is alphabetically grouped with a right-side letter index.
 - A floating Top button returns to the overview.
-- Potentially stale IDs are review candidates, not confirmed broken references.
-- Naming suggestions never rename entities.
+- Potentially stale IDs are review candidates, not confirmed broken references. Historical hits remain historical and are never counted as active dependencies.
+- Naming observations are informational only; numeric suffixes and repeated words are not treated as problems or rename recommendations.
+- Selected historical storage records are scanned separately from active dependencies.
 
 ## Scan scope
 
@@ -27,7 +28,7 @@ Included:
 - Lovelace dashboards under `.storage/lovelace*`.
 
 Excluded:
-- All other `.storage` internals.
+- All `.storage` internals except Lovelace dashboards and the explicit historical allowlist (`core.restore_state`, `trace.saved_traces`).
 - `custom_components`, add-on/application code, caches, and runtime folders.
 - Backup/archive/snapshot files and folders.
 - Secrets, auth/token files, databases, logs, media, `www`, and shared runtime data.
