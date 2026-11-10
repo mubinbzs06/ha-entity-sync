@@ -508,5 +508,13 @@ class ScannerTests(unittest.TestCase):
         self.assertIn("SUPERVISOR_TOKEN is missing", output.getvalue())
 
 
+    def test_addon_startup_uses_s6_environment_wrapper(self):
+        startup = Path(__file__).resolve().parents[1] / "ha_entity_sync" / "run.sh"
+        self.assertEqual(
+            startup.read_text(encoding="utf-8").splitlines()[0],
+            "#!/command/with-contenv bash",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
