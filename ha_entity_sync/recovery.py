@@ -294,7 +294,7 @@ def _validate_pair(old_id, replacement_id, fetch_live_states):
 def recover_entity_pair(old_id, replacement_id, fetch_live_states):
     """Move the old entry aside, restore the live entity to the original ID, and retain rollback."""
     old_entry, replacement_entry, identity = _validate_pair(old_id, replacement_id, fetch_live_states)
-    backup = create_verified_backup([old_id, replacement_id], f"recovery of {old_id}")
+    backup = create_verified_backup([old_id, replacement_id], f"recovery of {old_id}", {old_id: old_entry, replacement_id: replacement_entry})
     # Backup generation can take time; repeat all identity/state checks immediately before writes.
     checked_old, checked_replacement, checked_identity = _validate_pair(old_id, replacement_id, fetch_live_states)
     if checked_identity != identity:
@@ -308,6 +308,8 @@ def recover_entity_pair(old_id, replacement_id, fetch_live_states):
         "old_entity_id": old_id,
         "replacement_entity_id": replacement_id,
         "identity_reason": identity,
+        "old_identity": _identity_snapshot(old_entry),
+        "replacement_identity": _identity_snapshot(replacement_entry),
         "backup_slug": backup["slug"],
         "backup_name": backup["name"],
         "temporary_entity_id": None,
@@ -429,17 +431,18 @@ def rollback_entity_recovery(record_id, fetch_live_states):
         not isinstance(recovered_entry, dict)
         or not isinstance(quarantined_entry, dict)
         or entries.get(replacement_id) is not None
-        or not _identity_reason(quarantined_entry, recovered_entry)
+        or not _same_identity_snapshot(recovered_entry, record.get("replacement_identity"))
+        or not _same_identity_snapshot(quarantined_entry, record.get("old_identity"))
         or not live or live.get("state") in {"unavailable", "unknown"}
     ):
         raise RecoveryError("Current registry/state no longer matches this recovery. Rollback was not attempted.")
 
-    backup = create_verified_backup([old_id, temp_id], f"rollback of {old_id}")
+    backup = create_verified_backup([old_id, temp_id], f"rollback of {old_id}", {old_id: recovered_entry, temp_id: quarantined_entry})
     # Recheck the recovered layout after backup creation and immediately before rollback writes.
     entries, states = _fresh([old_id, replacement_id, temp_id], fetch_live_states)
     if (
-        not _identity_reason(quarantined_entry, entries.get(temp_id))
-        or not _identity_reason(recovered_entry, entries.get(old_id))
+        not _same_identity_snapshot(entries.get(temp_id), record.get("old_identity"))
+        or not _same_identity_snapshot(entries.get(old_id), record.get("replacement_identity"))
         or entries.get(replacement_id) is not None
         or not states.get(old_id)
         or states[old_id].get("state") in {"unavailable", "unknown"}
@@ -457,8 +460,8 @@ def rollback_entity_recovery(record_id, fetch_live_states):
             final_entries, final_states = _fresh([old_id, replacement_id, temp_id], fetch_live_states)
             replacement_state = final_states.get(replacement_id)
             if (
-                _identity_reason(quarantined_entry, final_entries.get(old_id))
-                and _identity_reason(recovered_entry, final_entries.get(replacement_id))
+                _same_identity_snapshot(final_entries.get(old_id), record.get("old_identity"))
+                and _same_identity_snapshot(final_entries.get(replacement_id), record.get("replacement_identity"))
                 and replacement_state and replacement_state.get("state") not in {"unavailable", "unknown"}
             ):
                 _update_audit(record_id, {
