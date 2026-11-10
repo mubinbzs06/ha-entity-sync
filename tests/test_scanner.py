@@ -83,6 +83,27 @@ class ScannerTests(unittest.TestCase):
 
 
 
+    def test_naming_findings_include_active_and_historical_usage_locations(self):
+        (self.root / "automations.yaml").write_text(
+            "action:\\n  entity_id: sensor.fan_speed_2\\n", encoding="utf-8"
+        )
+        (self.root / ".storage" / "core.restore_state").write_text(
+            '{"entity_id":"sensor.fan_speed_2"}', encoding="utf-8"
+        )
+        report = app.scan()
+        finding = next(
+            item for item in report["naming_findings"]
+            if item["entity_id"] == "sensor.fan_speed_2"
+        )
+        usage = finding["usage"]
+        active = [item for item in usage if item["category"] != "Historical"]
+        historical = [item for item in usage if item["category"] == "Historical"]
+        self.assertEqual(len(active), 1)
+        self.assertEqual(active[0]["file"], "automations.yaml")
+        self.assertEqual(active[0]["matches"][0]["line"], 2)
+        self.assertEqual(len(historical), 1)
+        self.assertEqual(historical[0]["file"], ".storage/core.restore_state")
+
     def test_scan_scope_includes_user_config_and_dashboard_but_excludes_internal_and_backup(self):
         (self.root / "packages").mkdir()
         (self.root / "packages" / "lights.yaml").write_text(
