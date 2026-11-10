@@ -1,0 +1,22 @@
+name: HA Entity Sync
+version: "0.1.0"
+slug: ha_entity_sync
+description: Read-only audit of Home Assistant entity references and rename impact
+url: https://github.com/mubinbzs06/ha-entity-sync
+arch:
+  - aarch64
+  - amd64
+  - armv7
+startup: application
+boot: auto
+init: false
+ports:
+  8099/tcp: 8099
+ports_description:
+  8099/tcp: Read-only audit dashboard
+map:
+  - type: homeassistant_config
+    read_only: true
+    path: /homeassistant
+options: {}
+schema: {}
