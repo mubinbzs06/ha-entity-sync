@@ -1,55 +1,103 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#101820">
 <title>HA Entity Sync</title>
 <style>
-:root{color-scheme:dark;--bg:#111820;--panel:#1b2732;--line:#30404d;--muted:#9aabb8;--text:#eef4f8;--accent:#69c4b5}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px system-ui,sans-serif}
-main{max-width:1100px;margin:auto;padding:24px}header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
-h1{font-size:25px;margin:0 0 6px}.sub,.muted{color:var(--muted)}button{background:var(--accent);color:#10201e;border:0;border-radius:9px;padding:11px 17px;font-weight:700;cursor:pointer}
-.notice{margin:20px 0;padding:13px 16px;border:1px solid #39776d;background:#17312f;border-radius:10px}
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:12px;margin:18px 0}
-.stat,.result{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:15px}
-.num{font-size:27px;font-weight:700}.label{font-size:13px;color:var(--muted)}
-input{width:100%;padding:12px;border:1px solid var(--line);border-radius:9px;background:#0d141a;color:var(--text);margin:8px 0 14px}
-.result{margin:10px 0}.entity{font-weight:700;color:var(--accent);overflow-wrap:anywhere}.path{font-size:13px;color:var(--muted);margin:5px 0}.category{display:inline-block;font-size:11px;color:#d5e1e8;border:1px solid var(--line);border-radius:6px;padding:3px 7px;margin-top:4px}
-.match{font:12px ui-monospace,monospace;background:#101820;padding:8px;border-radius:6px;margin-top:6px}
-#status{color:var(--muted);margin:12px 0}.empty{padding:30px;text-align:center;color:var(--muted)}
-</style></head>
-<body><main>
-<header><div><h1>HA Entity Sync</h1><div class="sub">Entity reference audit · Home Assistant local scan</div></div><button id="scan">Run read-only scan</button></header>
-<div class="notice">🔒 <b>Read-only mode.</b> This version cannot rename entities or modify your Home Assistant configuration.</div>
-<div id="status">Ready. Run a scan to inspect entity references.</div>
-<section class="stats" id="stats"></section>
-<label for="filter">Filter entity IDs or file paths</label><input id="filter" placeholder="Search results…">
-<section id="results"><div class="empty">No scan results yet.</div></section>
+:root{color-scheme:dark;--bg:#101820;--panel:#18242e;--panel2:#202e39;--line:#30414e;--text:#edf4f7;--muted:#9aabb7;--accent:#69c4b5;--red:#ef8585;--amber:#e7bd70;--green:#7dc9a0;--radius:15px}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+button,input{font:inherit}button{cursor:pointer}.shell{max-width:1440px;margin:auto;min-height:100vh;display:grid;grid-template-columns:230px minmax(0,1fr)}
+aside{border-right:1px solid var(--line);padding:26px 16px;background:#131e27}.brand{font-size:18px;font-weight:800;letter-spacing:.1px}.brand small{display:block;color:var(--muted);font-size:12px;font-weight:500;margin-top:3px}.nav{display:grid;gap:7px;margin-top:34px}.nav a{color:var(--muted);text-decoration:none;padding:10px 12px;border-radius:10px}.nav a.active{color:var(--text);background:var(--panel2)}.aside-note{font-size:12px;color:var(--muted);margin:32px 8px 0}
+main{padding:28px clamp(16px,3vw,42px);min-width:0}.top{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}.eyebrow{color:var(--accent);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.1em}h1{font-size:clamp(25px,3vw,34px);line-height:1.15;margin:5px 0}.sub{color:var(--muted);font-size:14px}.primary{background:var(--accent);color:#10201e;border:0;border-radius:10px;padding:11px 17px;font-weight:750}.primary:disabled{opacity:.55;cursor:wait}
+.notice{margin:22px 0 16px;padding:13px 15px;border:1px solid #39776d;background:#17312f;border-radius:12px;font-size:13px}.notice.secondary{border-color:var(--line);background:var(--panel);color:var(--muted)}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:16px 0 25px}.stat{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:17px;min-width:0}.num{font-size:clamp(23px,2.4vw,30px);font-weight:800;letter-spacing:-.04em}.label{color:var(--muted);font-size:12px;margin-top:3px}
+.section-head{display:flex;align-items:end;justify-content:space-between;gap:12px;margin:26px 0 12px}.section-head h2{font-size:18px;margin:0}.section-head p{margin:3px 0 0;color:var(--muted);font-size:13px}
+.search{width:100%;padding:13px 14px;border:1px solid var(--line);border-radius:11px;background:#0c141b;color:var(--text);outline:none}.search:focus{border-color:var(--accent)}.toolbar{display:flex;gap:9px;margin:12px 0 16px}.quiet{border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:9px;padding:8px 11px;font-size:12px}
+.group{border:1px solid var(--line);background:var(--panel);border-radius:13px;margin:10px 0;overflow:hidden}.group>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:11px;padding:14px 15px}.group>summary::-webkit-details-marker{display:none}.group>summary:after{content:"＋";margin-left:auto;color:var(--muted);font-size:17px}.group[open]>summary:after{content:"−"}.group-title{font-weight:750}.group-meta{color:var(--muted);font-size:12px;margin-left:auto;margin-right:5px}.dot{width:9px;height:9px;border-radius:50%;background:var(--accent);flex:none}.group[data-category="Historical"] .dot{background:#8295a5}.group[data-category="Needs review"] .dot{background:var(--amber)}.group-body{padding:0 12px 12px}.entity{border:1px solid var(--line);border-radius:10px;margin:8px 0;background:#131e27;overflow:hidden}.entity>summary{list-style:none;cursor:pointer;padding:12px;display:flex;align-items:center;gap:10px}.entity>summary::-webkit-details-marker{display:none}.entity-id{font:600 13px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--accent);overflow-wrap:anywhere;min-width:0}.count{font-size:11px;color:var(--muted);white-space:nowrap;margin-left:auto}.entity-body{padding:0 12px 12px}.ref{padding:10px 11px;background:#0f1820;border-radius:8px;margin-top:7px;min-width:0}.path{font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}.line{color:var(--muted);font-size:12px;margin-top:4px}.pill{display:inline-block;border:1px solid var(--line);border-radius:20px;padding:2px 8px;font-size:10px;color:var(--muted);margin-top:7px}.empty{padding:35px 15px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:12px}
+#status{color:var(--muted);font-size:13px;margin:12px 0}.mobile-brand{display:none}
+@media(max-width:850px){.shell{grid-template-columns:1fr}aside{display:none}main{padding:20px 16px 36px}.mobile-brand{display:block;color:var(--muted);font-size:12px;margin-bottom:16px}.stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.stat{padding:14px}.top{align-items:flex-start}.primary{width:100%}.top-actions{width:100%}.section-head{align-items:flex-start;flex-direction:column}.toolbar{flex-wrap:wrap}}
+@media(max-width:390px){.group>summary{padding:12px}.group-meta{font-size:11px}.entity>summary{align-items:flex-start;flex-wrap:wrap}.count{margin-left:0}.stats{gap:7px}}
+</style>
+</head>
+<body>
+<div class="shell">
+<aside>
+  <div class="brand">HA Entity Sync<small>Entity reference audit</small></div>
+  <nav class="nav" aria-label="Main navigation">
+    <a class="active" href="#overview">Overview</a>
+    <a href="#references">Entity references</a>
+    <a href="#safety">Safety & status</a>
+  </nav>
+  <p class="aside-note">Local scan · Read-only<br>No cloud connection or telemetry</p>
+</aside>
+<main>
+  <div class="mobile-brand">HA ENTITY SYNC · LOCAL HOME ASSISTANT AUDIT</div>
+  <header class="top" id="overview">
+    <div><div class="eyebrow">Home Assistant · Local scan</div><h1>Entity health</h1><div class="sub">A clearer view of registered entities and where they are referenced.</div></div>
+    <div class="top-actions"><button class="primary" id="scan">Run read-only scan</button></div>
+  </header>
+  <div class="notice" id="safety">🔒 <b>Read-only mode.</b> This version cannot rename entities or modify your Home Assistant configuration.</div>
+  <div id="status" role="status" aria-live="polite">Ready. Run a scan to inspect entity references.</div>
+  <section class="stats" id="stats" aria-label="Scan summary">
+    <div class="stat"><div class="num">—</div><div class="label">Registered entities</div></div>
+    <div class="stat"><div class="num">—</div><div class="label">Entities referenced</div></div>
+    <div class="stat"><div class="num">—</div><div class="label">Reference hits</div></div>
+    <div class="stat"><div class="num">—</div><div class="label">Files scanned</div></div>
+  </section>
+  <div class="notice secondary">Broken-reference detection, impact previews, backups, and repair actions are not enabled yet. This screen reports only what the current read-only scanner can verify.</div>
+  <section id="references">
+    <div class="section-head"><div><h2>Entity references</h2><p>Groups stay folded until you open them. Expand an entity to see its exact file locations.</p></div></div>
+    <input class="search" id="filter" type="search" placeholder="Search entity IDs or file paths…" aria-label="Search entity IDs or file paths">
+    <div class="toolbar"><button class="quiet" id="expandAll" type="button">Expand groups</button><button class="quiet" id="collapseAll" type="button">Collapse all</button></div>
+    <section id="results"><div class="empty">No scan results yet.</div></section>
+  </section>
 </main>
+</div>
 <script>
 let report=null;
 const $=id=>document.getElementById(id);
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function groupedResults(){
+ const q=$('filter').value.trim().toLowerCase();
+ const matches=(report?.results||[]).filter(x=>(x.entity_id+' '+x.file+' '+(x.category||'')).toLowerCase().includes(q));
+ const entities=new Map();
+ for(const item of matches){if(!entities.has(item.entity_id))entities.set(item.entity_id,[]);entities.get(item.entity_id).push(item);}
+ const categories=['Active configuration','Dashboard','Needs review','Historical'];
+ return categories.map(category=>{
+  const rows=[...entities.entries()].map(([id,refs])=>({id,refs:refs.filter(r=>r.category===category)})).filter(x=>x.refs.length);
+  if(!rows.length)return '';
+  const hitCount=rows.reduce((n,x)=>n+x.refs.reduce((m,r)=>m+r.count,0),0);
+  return '<details class="group" data-category="'+esc(category)+'"><summary><span class="dot"></span><span class="group-title">'+esc(category)+'</span><span class="group-meta">'+rows.length+' entities · '+hitCount+' hits</span></summary><div class="group-body">'+rows.map(x=>{
+   const count=x.refs.reduce((n,r)=>n+r.count,0);
+   return '<details class="entity"><summary><span class="entity-id">'+esc(x.id)+'</span><span class="count">'+x.refs.length+' file(s) · '+count+' reference(s)</span></summary><div class="entity-body">'+x.refs.map(r=>'<div class="ref"><div class="path">'+esc(r.file)+'</div><div class="line">Line(s): '+esc((r.lines||[]).join(', '))+(r.count>(r.lines||[]).length?' · additional matches omitted':'')+'</div></div>').join('')+'</div></details>';
+  }).join('')+'</div></details>';
+ }).join('');
+}
 function render(){
  if(!report)return;
- const q=$('filter').value.toLowerCase();
- const rows=report.results.filter(x=>(x.entity_id+' '+x.file).toLowerCase().includes(q));
- $('results').innerHTML=rows.length?rows.map(x=>'<article class="result"><div class="entity">'+esc(x.entity_id)+'</div><div class="path">'+esc(x.file)+' · '+x.count+' reference(s)</div><div class="category">'+esc(x.category||'Needs review')+'</div>'+x.lines.map(n=>'<div class="match">Reference at line '+n+'</div>').join('')+'</article>').join(''):'<div class="empty">No matching references.</div>';
+ const html=groupedResults();
+ $('results').innerHTML=html||'<div class="empty">No matching references.</div>';
 }
 $('scan').onclick=async()=>{
  $('scan').disabled=true;$('status').textContent='Scanning read-only configuration files…';
  try{
   const base=window.location.pathname.endsWith('/')?window.location.pathname:window.location.pathname+'/';
   const r=await fetch(base+'api/scan');report=await r.json();
-  if(!report.ok){$('status').textContent=report.error;$('stats').innerHTML='';$('results').innerHTML='';return;}
+  if(!report.ok){$('status').textContent=report.error;$('results').innerHTML='';return;}
   $('status').textContent='Scan complete. No files were changed.';
   $('stats').innerHTML=[
-   ['Registered entities',report.entities_found],['Files scanned',report.files_scanned],
-   ['Entities referenced',report.entities_with_references],['Reference hits',report.reference_hits]
-  ,['Active configuration hits',report.category_hits?.['Active configuration']||0],['Dashboard hits',report.category_hits?.Dashboard||0],['Historical hits',report.category_hits?.Historical||0],['Needs review hits',report.category_hits?.['Needs review']||0]
-  ].map(([l,n])=>'<div class="stat"><div class="num">'+n+'</div><div class="label">'+l+'</div></div>').join('');
+   ['Registered entities',report.entities_found],['Entities referenced',report.entities_with_references],
+   ['Reference hits',report.reference_hits],['Files scanned',report.files_scanned]
+  ].map(([label,value])=>'<div class="stat"><div class="num">'+esc(value)+'</div><div class="label">'+esc(label)+'</div></div>').join('');
   render();
  }catch(e){$('status').textContent='Scan failed: '+e.message;}
  finally{$('scan').disabled=false;}
 };
 $('filter').addEventListener('input',render);
-</script></body></html>
+$('expandAll').onclick=()=>document.querySelectorAll('.group').forEach(x=>x.open=true);
+$('collapseAll').onclick=()=>document.querySelectorAll('.group,.entity').forEach(x=>x.open=false);
+</script>
+</body>
+</html>
