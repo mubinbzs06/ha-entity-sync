@@ -563,3 +563,43 @@ class ReplacementIdentityEvidenceTests(unittest.TestCase):
         self.assertEqual(len(plans), 1)
         self.assertTrue(plans[0]["identity_evidence"])
         self.assertEqual(plans[0]["identity_conflicts"], [])
+
+
+class DashboardRouteTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        (self.root / ".storage").mkdir()
+        self.config_patch = patch.object(app, "CONFIG", self.root)
+        self.config_patch.start()
+
+    def tearDown(self):
+        self.config_patch.stop()
+        self.temp.cleanup()
+
+    def test_default_dashboard_route_is_available(self):
+        self.assertEqual(app.dashboard_route_index()[".storage/lovelace"], "/lovelace")
+
+    def test_custom_dashboard_route_uses_registered_url_path(self):
+        payload = {"data": {"dashboards": [
+            {"id": "dash-123", "url_path": "energy-overview"},
+            {"id": "dash-456", "url_path": "security"}
+        ]}}
+        (self.root / ".storage" / "lovelace_dashboards").write_text(
+            json.dumps(payload), encoding="utf-8"
+        )
+        routes = app.dashboard_route_index()
+        self.assertEqual(routes[".storage/lovelace.dash-123"], "/energy-overview")
+        self.assertEqual(routes[".storage/lovelace.dash-456"], "/security")
+
+    def test_invalid_dashboard_url_path_is_not_exposed(self):
+        payload = {"data": {"dashboards": [
+            {"id": "unsafe", "url_path": "../config"}
+        ]}}
+        (self.root / ".storage" / "lovelace_dashboards").write_text(
+            json.dumps(payload), encoding="utf-8"
+        )
+        self.assertNotIn(".storage/lovelace.unsafe", app.dashboard_route_index())
+
+    def test_missing_dashboard_registry_keeps_default_route(self):
+        self.assertEqual(app.dashboard_route_index(), {".storage/lovelace": "/lovelace"})
