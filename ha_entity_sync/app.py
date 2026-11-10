@@ -3,6 +3,9 @@
 import json
 import os
 import re
+import threading
+import time
+from datetime import datetime, timezone
 from collections import Counter
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -11,6 +14,12 @@ from urllib.parse import parse_qs, urlparse
 CONFIG = Path("/homeassistant")
 REGISTRY = CONFIG / ".storage" / "core.entity_registry"
 MAX_FILE_BYTES = 5 * 1024 * 1024
+VERSION = "0.2.9"
+PORT = 8099
+SCAN_CACHE_SECONDS = 60
+IGNORED_STALE_DOMAINS = {"conversation"}
+_scan_cache = {"report": None, "created": 0.0}
+_scan_lock = threading.Lock()
 HISTORICAL_STORAGE_NAMES = {"core.restore_state", "trace.saved_traces"}
 # Search user-maintained configuration plus a small, explicit historical-storage allowlist.
 # Never traverse all of .storage: most files are HA internals or credentials.
@@ -229,11 +238,14 @@ def naming_audit(registry):
     return findings
 
 def scan():
+    started = time.monotonic()
     if not REGISTRY.exists():
+        print("HA Entity Sync: scan failed - entity registry not found", flush=True)
         return {"ok": False, "error": "Entity registry not found at .storage/core.entity_registry"}
     try:
         registry = load_registry()
     except Exception as err:
+        print(f"HA Entity Sync: scan failed - {type(err).__name__}: {err}", flush=True)
         return {"ok": False, "error": f"Could not read entity registry: {type(err).__name__}: {err}"}
 
     entity_ids = sorted({item["entity_id"] for item in registry})
@@ -268,7 +280,7 @@ def scan():
                     if len(entry["matches"]) < 30:
                         entry["lines"].append(line_no)
                         entry["matches"].append(evidence)
-                elif entity_id.split(".", 1)[0] in known_domains and (
+                elif entity_id.split(".", 1)[0] not in IGNORED_STALE_DOMAINS and entity_id.split(".", 1)[0] in known_domains and (
                     category == "Historical" or ENTITY_CONTEXT_RE.search(line)
                 ):
                     key = (entity_id, rel)
@@ -288,25 +300,55 @@ def scan():
                         entry["matches"].append(evidence)
 
     results = sorted(references.values(), key=lambda x: (x["entity_id"], x["file"]))
-    stale = sorted(candidates.values(), key=lambda x: (x["entity_id"], x["file"]))
+    candidate_categories = {}
+    for item in candidates.values():
+        candidate_categories.setdefault(item["entity_id"], set()).add(item["category"])
+    def candidate_priority(entity_id):
+        categories = candidate_categories.get(entity_id, set())
+        if categories.intersection({"Dashboard", "Active configuration"}):
+            return 0
+        if "Needs review" in categories:
+            return 1
+        return 2
+    stale = sorted(candidates.values(), key=lambda x: (candidate_priority(x["entity_id"]), x["entity_id"], x["file"]))
+    for item in stale:
+        rank = candidate_priority(item["entity_id"])
+        item["priority"] = "Active/dashboard evidence" if rank == 0 else "Needs review evidence" if rank == 1 else "Historical-only evidence"
     naming_findings = naming_audit(registry)
     usage_by_entity = {}
     for reference in results:
         usage_by_entity.setdefault(reference["entity_id"], []).append(reference)
     for finding in naming_findings:
         finding["usage"] = usage_by_entity.get(finding["entity_id"], [])
-    by_entity = {item["entity_id"] for item in results}
+    referenced_entities = {item["entity_id"] for item in results}
+    active_entities = {item["entity_id"] for item in results if item["category"] != "Historical"}
+    historical_entities = {item["entity_id"] for item in results if item["category"] == "Historical"}
+    historical_only_entities = historical_entities - active_entities
+    active_reference_count = len(active_entities)
+    unreferenced_count = len(set(entity_ids) - referenced_entities)
+    reference_record_count = len(results)
+    reference_hit_count = sum(item["count"] for item in results)
+    duration = round(time.monotonic() - started, 3)
+    scanned_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     category_hits = {
         category: sum(item["count"] for item in results if item["category"] == category)
         for category in ("Active configuration", "Dashboard", "Historical", "Needs review")
     }
-    return {
+    report = {
         "ok": True,
         "read_only": True,
         "entities_found": len(entity_ids),
+        "registered_entities": len(entity_ids),
         "files_scanned": scanned,
-        "entities_with_references": len(by_entity),
-        "reference_hits": sum(item["count"] for item in results),
+        "entities_with_references": len(referenced_entities),
+        "entities_with_any_references": len(referenced_entities),
+        "entities_with_active_references": active_reference_count,
+        "entities_with_historical_only_references": len(historical_only_entities),
+        "unreferenced_entities": unreferenced_count,
+        "reference_records": reference_record_count,
+        "reference_hits": reference_hit_count,
+        "scan_duration_seconds": duration,
+        "last_scanned_at": scanned_at,
         "category_hits": category_hits,
         "results": results,
         "potentially_stale": stale,
@@ -316,13 +358,40 @@ def scan():
         "naming_findings_count": len(naming_findings),
         "audit_note": "Potentially stale entries are candidates for review, not confirmed broken references."
     }
+    print(
+        "HA Entity Sync: scan complete "
+        f"version={VERSION} registered={len(entity_ids)} active_referenced={active_reference_count} "
+        f"historical_only={len(historical_only_entities)} unreferenced={unreferenced_count} "
+        f"reference_records={reference_record_count} reference_hits={reference_hit_count} "
+        f"files={scanned} stale_candidates={len({item['entity_id'] for item in stale})} duration={duration:.3f}s",
+        flush=True,
+    )
+    return report
+
+
+def get_scan_report(force=False):
+    now = time.monotonic()
+    cached = _scan_cache["report"]
+    if not force and cached is not None and now - _scan_cache["created"] < SCAN_CACHE_SECONDS:
+        return {**cached, "cache_hit": True}
+    with _scan_lock:
+        now = time.monotonic()
+        cached = _scan_cache["report"]
+        if not force and cached is not None and now - _scan_cache["created"] < SCAN_CACHE_SECONDS:
+            return {**cached, "cache_hit": True}
+        report = scan()
+        if report.get("ok"):
+            _scan_cache["report"] = report
+            _scan_cache["created"] = time.monotonic()
+        return {**report, "cache_hit": False}
 
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         route = urlparse(self.path).path
         if route == "/api/scan":
-            payload = json.dumps(scan()).encode()
+            force = parse_qs(urlparse(self.path).query).get("force", ["0"])[0] == "1"
+            payload = json.dumps(get_scan_report(force=force)).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(payload)))
@@ -366,5 +435,6 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    print("HA Entity Sync listening on 0.0.0.0:8099 (read-only)")
-    ThreadingHTTPServer(("0.0.0.0", 8099), Handler).serve_forever()
+    print(f"HA Entity Sync version {VERSION} starting on 0.0.0.0:{PORT} (read-only; scan cache {SCAN_CACHE_SECONDS}s)", flush=True)
+    print(f"HA Entity Sync listening on 0.0.0.0:{PORT}", flush=True)
+    ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
