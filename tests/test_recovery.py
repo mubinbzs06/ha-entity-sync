@@ -91,7 +91,7 @@ class RecoveryTests(unittest.TestCase):
             )
         self.assertEqual(old_entry, self.old_entry)
         self.assertEqual(new_entry, self.new_entry)
-        self.assertEqual(reason, "Same registered device ID")
+        self.assertEqual(reason, "Same registered device ID and integration")
 
     def test_pair_preflight_blocks_disabled_entities(self):
         disabled = {**self.old_entry, "disabled_by": "user"}
