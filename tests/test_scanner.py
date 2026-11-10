@@ -356,5 +356,17 @@ class ScannerTests(unittest.TestCase):
         self.assertIn("sensor.bathroom_1_temperature", plan["affected_lines"][0]["after"])
 
 
+    def test_clean_name_plan_can_flag_ha_numeric_suffix_collision(self):
+        registry = [
+            {"entity_id": "sensor.laundry_temperature_2", "platform": "mqtt"},
+            {"entity_id": "sensor.laundry_temperature"},
+        ]
+        plans = app.build_clean_name_suggestions(registry, [])
+        plan = next(item for item in plans if item["entity_id"] == "sensor.laundry_temperature_2")
+        self.assertEqual(plan["suggested_entity_id"], "sensor.laundry_temperature")
+        self.assertTrue(plan["collision"])
+        self.assertEqual(plan["confidence"], "low")
+
+
 if __name__ == "__main__":
     unittest.main()
