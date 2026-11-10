@@ -364,14 +364,39 @@ def evaluate_replacement_identity(old, replacement):
     }
 
 
+def dashboard_route_index():
+    """Map Lovelace storage files to their Home Assistant dashboard URL paths."""
+    routes = {".storage/lovelace": "/lovelace"}
+    registry_path = CONFIG / ".storage" / "lovelace_dashboards"
+    try:
+        payload = json.loads(registry_path.read_text(encoding="utf-8"))
+        dashboards = payload.get("data", {}).get("dashboards", [])
+        for dashboard in dashboards:
+            if not isinstance(dashboard, dict):
+                continue
+            dashboard_id = dashboard.get("id")
+            url_path = dashboard.get("url_path")
+            if dashboard_id and isinstance(url_path, str) and re.fullmatch(r"[A-Za-z0-9_-]+", url_path):
+                routes[f".storage/lovelace.{dashboard_id}"] = "/" + url_path
+    except (OSError, ValueError, TypeError):
+        # Missing dashboard metadata is normal on older/default-only installations.
+        pass
+    return routes
+
+
 def detect_readded_pairs(registry, references, live_states, device_names):
     """Find suffix replacement pairs only when HA state and identity evidence agree."""
     if live_states is None:
         return [], "Live Home Assistant state access is unavailable; re-add detection is not confirmed."
     by_id = {item["entity_id"]: item for item in registry}
     refs_by_id = {}
+    routes = dashboard_route_index()
     for reference in references:
-        refs_by_id.setdefault(reference["entity_id"], []).append(reference)
+        enriched = dict(reference)
+        if reference.get("category") == "Dashboard":
+            enriched["dashboard_url"] = routes.get(reference.get("file"))
+            enriched["dashboard_preview_available"] = bool(enriched["dashboard_url"])
+        refs_by_id.setdefault(reference["entity_id"], []).append(enriched)
     plans = []
     for replacement_id, replacement in by_id.items():
         match = NUMERIC_SUFFIX_RE.search(replacement_id.split(".", 1)[1])
