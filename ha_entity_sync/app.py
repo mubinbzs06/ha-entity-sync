@@ -465,7 +465,12 @@ def scan():
                         "count": 0, "lines": [], "matches": []
                     })
                     entry["count"] += 1
-                    if len(entry["matches"]) < 30:
+                    if category in {"Dashboard", "Active configuration"}:
+                        # Repair plans must retain every active source line, not just a preview sample.
+                        if line_no not in entry["lines"]:
+                            entry["lines"].append(line_no)
+                            entry["matches"].append(evidence)
+                    elif len(entry["matches"]) < 30 and line_no not in entry["lines"]:
                         entry["lines"].append(line_no)
                         entry["matches"].append(evidence)
                 elif entity_id.split(".", 1)[0] not in IGNORED_STALE_DOMAINS and entity_id.split(".", 1)[0] in known_domains and (
