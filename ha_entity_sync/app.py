@@ -297,8 +297,7 @@ def line_update_evidence(reference, old_id, new_id):
                 "category": reference.get("category"),
                 "before": before,
                 "after": re.sub(r"(?<![A-Za-z0-9_])" + re.escape(old_id) + r"(?![A-Za-z0-9_])", new_id, before),
-            })
-    return updates
+            })    return updates
 
 def evaluate_replacement_identity(old, replacement):
     """Return transparent identity evidence; names never establish identity."""
@@ -597,8 +596,7 @@ def build_clean_name_suggestions(registry, references):
         collision = registered_collision or batch_collision
         if batch_collision:
             reasons.append("Another entity in this scan already suggests the same target ID")
-        confidence = "low" if collision or suffix_rule else "high" if repeated_rule else "low"        refs = [ref for ref in refs_by_id.get(entity_id, []) if ref.get("category") in {"Dashboard", "Active configuration"}]
-        updates = []
+        confidence = "low" if collision or suffix_rule else "high" if repeated_rule else "low"        refs = [ref for ref in refs_by_id.get(entity_id, []) if ref.get("category") in {"Dashboard", "Active configuration"}]        updates = []
         for reference in refs:
             updates.extend(line_update_evidence(reference, entity_id, proposed))
         suggestions.append({
@@ -813,6 +811,23 @@ def get_scan_report(force=False):
         return {**report, "cache_hit": False}
 
 
+def validate_broken_reference_pair(old_id, replacement_id):
+    """Only repair genuinely missing IDs using a currently registered, live replacement."""
+    if not old_id or not replacement_id or old_id.split(".", 1)[0] != replacement_id.split(".", 1)[0]:
+        raise ConfigRepairError("Choose a replacement in the same entity domain.")
+    registry_ids = {item["entity_id"] for item in load_registry()}
+    live_states = fetch_live_states()
+    if live_states is None:
+        raise ConfigRepairError("Live Home Assistant states are unavailable; repair is blocked.")
+    if old_id in registry_ids or old_id in live_states:
+        raise ConfigRepairError("The old entity still exists in Home Assistant. It may be unavailable rather than broken; no repair was made.")
+    if replacement_id not in registry_ids or replacement_id not in live_states:
+        raise ConfigRepairError("The replacement must be present in both the entity registry and live Home Assistant states.")
+    if live_states[replacement_id].get("state") in {"unavailable", "unknown"}:
+        raise ConfigRepairError("The replacement entity is not currently available.")
+    return True
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         route = urlparse(self.path).path
@@ -897,8 +912,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))        except ValueError:
-            self.send_error(400, "Invalid request length")
-            return
+            self.send_error(400, "Invalid request length")            return
         if length <= 0 or length > 16384:
             self.send_error(413, "Invalid recovery request size")
             return
@@ -918,6 +932,10 @@ class Handler(BaseHTTPRequestHandler):
                     fetch_live_states,
                 )
             elif route == "/api/config-repair/preview":
+                validate_broken_reference_pair(
+                    str(request_data.get("old_entity_id") or ""),
+                    str(request_data.get("replacement_entity_id") or ""),
+                )
                 result = preview_config_repair(
                     CONFIG,
                     str(request_data.get("file") or ""),
@@ -925,6 +943,10 @@ class Handler(BaseHTTPRequestHandler):
                     str(request_data.get("replacement_entity_id") or ""),
                 )
             elif route == "/api/config-repair/apply":
+                validate_broken_reference_pair(
+                    str(request_data.get("old_entity_id") or ""),
+                    str(request_data.get("replacement_entity_id") or ""),
+                )
                 result = apply_config_repair(
                     CONFIG,
                     str(request_data.get("file") or ""),
