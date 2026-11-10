@@ -190,36 +190,17 @@ def classify_reference(path):
 
 
 def suggest_entity_names(entity_id, occupied):
-    """Return advisory, unique alternatives without changing the registered ID."""
+    """Suggest only a clear adjacent-repeat cleanup; never strip numeric suffixes."""
     domain, object_id = entity_id.split(".", 1)
-    words = [word for word in object_id.split("_") if word]
-    candidates = []
-
-    # Remove a trailing numeric suffix only as a candidate, never as an assumption.
-    base_words = words[:-1] if words and words[-1].isdigit() else words[:]
-    # Collapse repeated tokens while preserving their original order.
-    deduped = []
-    for word in base_words:
-        if word not in deduped:
-            deduped.append(word)
-
-    def add(parts):
-        candidate = domain + "." + "_".join(parts)
-        if parts and candidate != entity_id and candidate not in occupied and candidate not in candidates:
-            candidates.append(candidate)
-
-    add(deduped)
-
-    # If the original object ID is overly verbose, offer a compact form by
-    # removing generic trailing descriptors, but keep at least two meaningful tokens.
-    generic = {"sensor", "device", "entity", "value", "reading"}
-    compact = deduped[:]
-    while len(compact) > 2 and compact[-1] in generic:
-        compact.pop()
-    add(compact)
-
-    return candidates[:3]
-
+    words = object_id.split("_")
+    for width in range(len(words) // 2, 0, -1):
+        if words[:width] == words[width:2 * width]:
+            proposed_words = words[:width] + words[2 * width:]
+            candidate = domain + "." + "_".join(proposed_words)
+            if proposed_words and candidate != entity_id and candidate not in occupied:
+                return [candidate]
+            return []
+    return []
 
 def naming_audit(registry):
     ids = {item["entity_id"] for item in registry}
