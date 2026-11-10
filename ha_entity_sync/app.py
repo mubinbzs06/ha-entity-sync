@@ -16,7 +16,7 @@ from urllib.parse import parse_qs, urlparse
 CONFIG = Path("/homeassistant")
 REGISTRY = CONFIG / ".storage" / "core.entity_registry"
 MAX_FILE_BYTES = 5 * 1024 * 1024
-VERSION = "0.2.11"
+VERSION = "0.2.12"
 PORT = 8099
 SCAN_CACHE_SECONDS = 60
 IGNORED_STALE_DOMAINS = {"conversation"}
@@ -244,16 +244,30 @@ def fetch_live_states():
     """Read live HA states through the Supervisor proxy; never mutate HA."""
     token = os.environ.get("SUPERVISOR_TOKEN")
     if not token:
+        print("HA Entity Sync: live-state API unavailable; SUPERVISOR_TOKEN is missing", flush=True)
         return None
+    endpoint = "http://supervisor/core/api/states"
     request = urllib.request.Request(
-        "http://supervisor/core/api/states",
+        endpoint,
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
     )
     try:
         with urllib.request.urlopen(request, timeout=8) as response:
+            status = getattr(response, "status", response.getcode())
+            print(f"HA Entity Sync: GET {endpoint} returned HTTP {status}", flush=True)
             payload = json.loads(response.read().decode("utf-8"))
+        if not isinstance(payload, list):
+            print("HA Entity Sync: live-state API returned an unexpected JSON payload", flush=True)
+            return None
         return {item.get("entity_id"): item for item in payload if isinstance(item, dict) and item.get("entity_id")}
-    except (OSError, ValueError, urllib.error.URLError):
+    except urllib.error.HTTPError as err:
+        print(f"HA Entity Sync: GET {endpoint} failed with HTTP {err.code}", flush=True)
+        return None
+    except urllib.error.URLError as err:
+        print(f"HA Entity Sync: GET {endpoint} failed; network reason: {err.reason}", flush=True)
+        return None
+    except (OSError, ValueError, TypeError) as err:
+        print(f"HA Entity Sync: GET {endpoint} failed: {type(err).__name__}: {err}", flush=True)
         return None
 
 
@@ -319,20 +333,17 @@ def detect_readded_pairs(registry, references, live_states, device_names):
         new_platform = replacement.get("platform")
         old_config = old.get("config_entry_id")
         new_config = replacement.get("config_entry_id")
-        old_device_name = device_names.get(old_device, "").strip().casefold()
-        new_device_name = device_names.get(new_device, "").strip().casefold()
-        old_original = (old.get("original_name") or old.get("name") or "").strip().casefold()
-        new_original = (replacement.get("original_name") or replacement.get("name") or "").strip().casefold()
+        old_unique = old.get("unique_id")
+        new_unique = replacement.get("unique_id")
 
-        if old_device and old_device == new_device:
+        # Names alone are not identity. Require a shared unique ID, registered
+        # device lineage, or the same integration config entry.
+        if old_unique and old_unique == new_unique:
+            confidence, identity_reason = "high", "Same integration unique_id"
+        elif old_device and old_device == new_device:
             confidence, identity_reason = "high", "Same registered device ID"
         elif old_config and old_config == new_config and old_platform and old_platform == new_platform:
             confidence, identity_reason = "high", "Same integration and config entry"
-        elif old_platform and old_platform == new_platform and (
-            (old_device_name and old_device_name == new_device_name)
-            or (old_original and old_original == new_original)
-        ):
-            confidence, identity_reason = "medium", "Same integration with matching device/entity name"
         else:
             continue
 
@@ -373,37 +384,34 @@ def build_clean_name_suggestions(registry, references):
     for reference in references:
         refs_by_id.setdefault(reference["entity_id"], []).append(reference)
     suggestions = []
+    suggested_targets = set()
     for item in registry:
         entity_id = item["entity_id"]
         domain, object_id = entity_id.split(".", 1)
         words = object_id.split("_")
         candidate_words = words[:]
         reasons = []
-        # Remove a duplicated adjacent sequence, preserving meaningful numeric tokens.
+        # Primary rule: collapse one immediately repeated adjacent word sequence.
         for width in range(len(candidate_words) // 2, 0, -1):
             if candidate_words[:width] == candidate_words[width:2 * width]:
                 candidate_words = candidate_words[:width] + candidate_words[2 * width:]
                 reasons.append("Collapsed an immediately repeated name sequence")
                 break
-        suffix_removed = False
-        if candidate_words and candidate_words[-1] in {"2", "3"}:
-            removed_suffix = candidate_words.pop()
-            suffix_removed = True
-            reasons.append(f"Removed trailing HA duplicate suffix _{removed_suffix}; verify it is not intentional")
-        platform_removed = False
-        platform = (item.get("platform") or "").casefold()
-        if platform and len(candidate_words) > 1 and candidate_words[0].casefold() == platform:
-            candidate_words = candidate_words[1:]
-            platform_removed = True
-            reasons.append("Removed a leading integration prefix confirmed by registry metadata")
+        # Prefix removal is intentionally disabled: integration names can be
+        # essential to identifying an entity (for example sun.next_dawn).
+        # Numeric suffixes remain advisory only and are never assumed to be duplicates.
         if candidate_words == words:
             continue
         proposed = domain + "." + "_".join(candidate_words)
         if proposed == domain + ".":
             continue
-        collision = proposed in occupied and proposed != entity_id
-        repeated_only = any("repeated name sequence" in reason for reason in reasons) and not suffix_removed and not platform_removed
-        confidence = "low" if collision else "high" if repeated_only else "medium"
+        registered_collision = proposed in occupied and proposed != entity_id
+        batch_collision = proposed in suggested_targets
+        collision = registered_collision or batch_collision
+        if batch_collision:
+            reasons.append("Another entity in this scan already suggests the same target ID")
+        repeated_only = bool(reasons) and not collision
+        confidence = "low" if collision else "high" if repeated_only else "low"
         refs = [ref for ref in refs_by_id.get(entity_id, []) if ref.get("category") in {"Dashboard", "Active configuration"}]
         updates = []
         for reference in refs:
@@ -423,6 +431,7 @@ def build_clean_name_suggestions(registry, references):
             ],
             "read_only_plan": True,
         })
+        suggested_targets.add(proposed)
     return suggestions
 
 def scan():
