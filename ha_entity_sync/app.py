@@ -657,7 +657,9 @@ def build_clean_name_suggestions(registry, references):
         collision = registered_collision or batch_collision
         if batch_collision:
             reasons.append("Another entity in this scan already suggests the same target ID")
-        confidence = "low" if collision or suffix_rule else "high" if repeated_rule else "low"        refs = [ref for ref in refs_by_id.get(entity_id, []) if ref.get("category") in {"Dashboard", "Active configuration"}]        updates = []
+        confidence = "low" if collision or suffix_rule else "high" if repeated_rule else "low"
+        refs = [ref for ref in refs_by_id.get(entity_id, []) if ref.get("category") in {"Dashboard", "Active configuration"}]
+        updates = []
         for reference in refs:
             updates.extend(line_update_evidence(reference, entity_id, proposed))
         suggestions.append({
