@@ -72,6 +72,8 @@ lock media_player notify number persistent_notification person remote scene
 
 
 def load_registry():
+    if not safe_config_file(REGISTRY) or not REGISTRY.is_file():
+        raise OSError("Entity registry is missing, linked, or outside the configuration mount")
     data = json.loads(REGISTRY.read_text(encoding="utf-8"))
     entities = data.get("data", {}).get("entities", [])
     clean = [item for item in entities if isinstance(item, dict) and item.get("entity_id")]
@@ -288,6 +290,8 @@ def load_device_names():
     """Read device labels only as corroborating identity metadata."""
     path = CONFIG / ".storage" / "core.device_registry"
     try:
+        if not safe_config_file(path) or not path.is_file():
+            return {}
         data = json.loads(path.read_text(encoding="utf-8"))
         return {
             item.get("id"): (item.get("name_by_user") or item.get("name") or "")
@@ -676,7 +680,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(page)
         elif route == "/health":
-            ready = REGISTRY.is_file()
+            ready = safe_config_file(REGISTRY) and REGISTRY.is_file()
             payload = json.dumps({
                 "ok": ready,
                 "version": VERSION,
