@@ -106,6 +106,11 @@ function evidenceHtml(r){
  return matches.map(m=>'<div class="evidence"><div class="evidence-head"><span class="path">'+esc(r.file)+'</span><span class="line">Line '+esc(m.line)+'</span><button class="copy" type="button" data-open-file="'+esc(r.file)+'" data-line="'+esc(m.line)+'">Open file ↗</button></div><code class="snippet">'+esc(m.text||'')+'</code></div>').join('') ||
  '<div class="evidence"><div class="evidence-head"><span class="path">'+esc(r.file)+'</span><button class="copy" type="button" data-open-file="'+esc(r.file)+'" data-line="'+esc((r.lines||[])[0]||1)+'">Open file ↗</button></div><div class="line">Line(s): '+esc((r.lines||[]).join(', '))+'</div></div>';
 }
+function usageSection(title,items){
+ if(!items.length)return '';
+ const hits=items.reduce((sum,item)=>sum+(item.count||0),0);
+ return '<div class="finding-usage"><div class="usage-title">'+esc(title)+' · '+items.length+' file(s) · '+hits+' reference(s)</div>'+items.map(item=>'<div class="usage-ref"><span class="pill">'+esc(item.category)+'</span>'+evidenceHtml(item)+'</div>').join('')+'</div>';
+}
 function groupedResults(){
  const q=$('filter').value.trim().toLowerCase();
  const matches=(report?.results||[]).filter(x=>(x.entity_id+' '+x.file+' '+(x.category||'')).toLowerCase().includes(q));
@@ -133,7 +138,7 @@ function renderStale(){
 function renderNaming(){
  const q=$('filter').value.trim().toLowerCase();
  const rows=(report?.naming_findings||[])
-  .filter(x=>(x.entity_id+' '+x.name+' '+x.suggested_entity_id+' '+x.issues.map(i=>i.type+' '+i.detail).join(' ')).toLowerCase().includes(q))
+  .filter(x=>(x.entity_id+' '+x.name+' '+x.issues.map(i=>i.type+' '+i.detail).join(' ')+' '+(x.usage||[]).map(r=>r.file+' '+r.category).join(' ')).toLowerCase().includes(q))
   .sort((a,b)=>a.entity_id.localeCompare(b.entity_id));
  const rail=$('alphabetRail');
  if(!rows.length){
@@ -149,7 +154,12 @@ function renderNaming(){
  const letters=[...groups.keys()].sort();
  $('namingResults').innerHTML=letters.map(letter=>
   '<div class="letter-heading" id="naming-letter-'+esc(letter)+'">'+esc(letter)+' <span class="count">('+groups.get(letter).length+')</span></div>'+
-  groups.get(letter).map(x=>'<div class="finding"><div class="finding-head"><span class="finding-title">'+esc(x.entity_id)+'</span><span class="count">'+x.issues.length+' issue(s)</span></div>'+(x.name?'<p>Friendly name: '+esc(x.name)+'</p>':'')+x.issues.map(i=>'<p><b>'+esc(i.type)+':</b> '+esc(i.detail)+(i.matching_base?' Matching base entity: '+esc(i.matching_base):'')+'</p>').join('')+'</div>').join('')
+  groups.get(letter).map(x=>{
+   const usage=x.usage||[];
+   const active=usage.filter(r=>r.category!=='Historical');
+   const historical=usage.filter(r=>r.category==='Historical');
+   return '<div class="finding"><div class="finding-head"><span class="finding-title">'+esc(x.entity_id)+'</span><span class="count">'+x.issues.length+' finding(s)</span></div>'+(x.name?'<p>Friendly name: '+esc(x.name)+'</p>':'')+x.issues.map(i=>'<p><b>'+esc(i.type)+':</b> '+esc(i.detail)+(i.matching_base?' Matching base entity: '+esc(i.matching_base):'')+'</p>').join('')+(active.length||historical.length?usageSection('Active usage',active)+usageSection('Historical usage',historical):'<p class="line">No references found in the current scan scope.</p>')+'</div>';
+  }).join('')
  ).join('');
  rail.innerHTML=letters.map(letter=>'<button type="button" data-jump-letter="'+esc(letter)+'" aria-label="Jump to '+esc(letter)+'">'+esc(letter)+'</button>').join('');
  rail.classList.toggle('visible',rows.length>=12);
@@ -285,6 +295,7 @@ async function openFile(path,line,owner){
  const base=window.location.pathname.endsWith('/')?window.location.pathname:window.location.pathname+'/';
  $('fileViewer').classList.add('visible');
  $('viewerPath').textContent=path;
+ $('viewerBack').textContent=owner?.classList.contains('finding')?'← Back to naming finding':'← Back to entity';
  $('viewerLine').textContent='Loading read-only file…';
  $('viewerCode').innerHTML='<div class="empty">Opening file…</div>';
  try{
@@ -307,6 +318,7 @@ async function openFile(path,line,owner){
 function closeFileViewer(){
  $('fileViewer').classList.remove('visible');
  if(returnToEntity){
+  $('viewerBack').textContent='← Back to entity';
   returnToEntity.open=true;
   const group=returnToEntity.closest('.group');
   if(group)group.open=true;
@@ -321,7 +333,7 @@ document.addEventListener('click',e=>{
  const jump=e.target.closest('[data-jump-letter]');
  if(jump){e.preventDefault();jumpToLetter(jump.getAttribute('data-jump-letter'));return;}
  const file=e.target.closest('[data-open-file]');
- if(file){openFile(file.getAttribute('data-open-file'),file.getAttribute('data-line'),file.closest('.entity, .candidate'));return;}
+ if(file){openFile(file.getAttribute('data-open-file'),file.getAttribute('data-line'),file.closest('.entity, .candidate, .finding'));return;}
 });
 </script>
 </body>
