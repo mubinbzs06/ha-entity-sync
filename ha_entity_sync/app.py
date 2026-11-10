@@ -120,30 +120,27 @@ def suggest_missing_entity_replacement(entity_id, known_entity_ids, deleted_hist
         for candidate in matches
     ]
     result = {
-        "entity_id": ranked[0]["entity_id"] if ranked else None,
+        "entity_id": ranked[0]["entity_id"] if ranked and not deleted else None,
         "candidates": ranked,
-        "confidence": "name_similarity_only" if ranked else "none",
-        "method": "same_domain_fuzzy",
+        "confidence": "name_similarity_only" if ranked and not deleted else "none",
+        "method": "deleted_entity_history" if deleted else "same_domain_fuzzy",
         "similarity_cutoff": 0.8,
         "detail": (
+            "Home Assistant deleted-entity history was found"
+            + (f" for integration {deleted.get('platform')}" if deleted.get("platform") else "")
+            + ". Ranked possible matches below are name-similarity hints only."
+            if deleted else
             "Possible match based on same-domain entity-ID similarity only. "
             "This is not identity proof; verify the device and integration before repair."
             if ranked else "No sufficiently similar same-domain entity was found."
         ),
+        "deleted_history_found": bool(deleted),
     }
     if deleted:
         result.update({
             "deleted_platform": deleted.get("platform"),
             "deleted_at": deleted.get("modified_at"),
-            "deleted_history_found": True,
         })
-        result["detail"] = (
-            "Home Assistant deleted-entity history was found"
-            + (f" for integration {deleted.get('platform')}" if deleted.get("platform") else "")
-            + ". Possible matches below are name-similarity hints only."
-        )
-    else:
-        result["deleted_history_found"] = False
     return result
 
 
