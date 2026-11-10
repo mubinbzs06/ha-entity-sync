@@ -119,13 +119,10 @@ def apply_config_repair(config_root, relative, old_id, new_id, expected_sha256):
     if _sha(current) != preview["before_sha256"]:
         raise ConfigRepairError("Configuration changed during backup. No changes were made.")
     after = preview["after"].encode("utf-8")
-    _atomic_write(target, after)
-    if _sha(target.read_bytes()) != _sha(after):
-        raise ConfigRepairError("Post-write verification failed. Restore the verified backup before proceeding.")
     record = {
         "id": record_id,
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "status": "applied",
+        "status": "backup_verified",
         "file": Path(relative).as_posix(),
         "old_entity_id": old_id,
         "replacement_entity_id": new_id,
@@ -138,6 +135,16 @@ def apply_config_repair(config_root, relative, old_id, new_id, expected_sha256):
     records = _load_audit()
     records.append(record)
     temporary = AUDIT_FILE.with_suffix(".tmp")
+    temporary.write_text(json.dumps(records[-200:], indent=2), encoding="utf-8")
+    os.replace(temporary, AUDIT_FILE)
+    _atomic_write(target, after)
+    if _sha(target.read_bytes()) != _sha(after):
+        record["status"] = "verification_failed"
+        record["error"] = "Post-write verification failed"
+        temporary.write_text(json.dumps(records[-200:], indent=2), encoding="utf-8")
+        os.replace(temporary, AUDIT_FILE)
+        raise ConfigRepairError("Post-write verification failed. A verified pre-repair backup is retained.")
+    record["status"] = "applied"
     temporary.write_text(json.dumps(records[-200:], indent=2), encoding="utf-8")
     os.replace(temporary, AUDIT_FILE)
     return {"ok": True, "record": record, "message": "Configuration references repaired and verified."}
@@ -158,6 +165,19 @@ def rollback_config_repair(config_root, record_id):
     before = backup_path.read_bytes()
     if _sha(before) != record["before_sha256"]:
         raise ConfigRepairError("Pre-repair backup verification failed. Rollback refused.")
+    # Rollback is also a file modification: snapshot and verify the current file first.
+    rollback_backup = BACKUP_DIR / (record_id + ".before-rollback.bak")
+    with rollback_backup.open("xb") as handle:
+        handle.write(current)
+        handle.flush()
+        os.fsync(handle.fileno())
+    if _sha(rollback_backup.read_bytes()) != _sha(current):
+        rollback_backup.unlink(missing_ok=True)
+        raise ConfigRepairError("Pre-rollback backup verification failed. No rollback changes were made.")
+    record["rollback_backup_file"] = rollback_backup.name
+    temporary = AUDIT_FILE.with_suffix(".tmp")
+    temporary.write_text(json.dumps(records[-200:], indent=2), encoding="utf-8")
+    os.replace(temporary, AUDIT_FILE)
     _atomic_write(target, before)
     if _sha(target.read_bytes()) != record["before_sha256"]:
         raise ConfigRepairError("Rollback write could not be verified.")
