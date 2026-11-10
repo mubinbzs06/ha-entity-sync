@@ -4,11 +4,11 @@ A local Home Assistant OS app for **read-only entity reference auditing**.
 
 ## Current development build
 
-Version **0.2.2** narrows the scan to user-maintained Home Assistant configuration and Lovelace dashboards. It excludes Home Assistant internals, integration/add-on implementation folders, backups, archives, databases, logs, secrets, and runtime data.
+Version **0.2.3** narrows the scan to user-maintained Home Assistant configuration and Lovelace dashboards. It excludes Home Assistant internals, integration/add-on implementation folders, backups, archives, databases, logs, secrets, and runtime data.
 
 Entities created by integrations are still tracked in the entity registry and appear when your own dashboards or configuration reference them. The scanner excludes app implementation files, not real dependencies used by your setup.
 
-## Long-list navigation\n\n- Sticky entity search remains visible while scrolling.\n- Naming review is alphabetically grouped with a right-side letter index for quick jumps.\n- A floating Top button returns to the beginning of the page.\n\n## Scan scope
+## Automatic scan and session stats\n\nThe app automatically scans on open. Results and statistics are session-only and clear when the app is closed; reopening performs a fresh scan.\n\n## Long-list navigation\n\n- Sticky entity search remains visible while scrolling.\n- Naming review is alphabetically grouped with a right-side letter index for quick jumps.\n- A floating Top button returns to the beginning of the page.\n\n## Scan scope
 
 Included:
 - Root YAML/Jinja configuration.
