@@ -85,7 +85,8 @@ class ScannerTests(unittest.TestCase):
 
     def test_naming_findings_include_active_and_historical_usage_locations(self):
         (self.root / "automations.yaml").write_text(
-            "action:\\n  entity_id: sensor.fan_speed_2\\n", encoding="utf-8"
+            "action:\n"
+            "  entity_id: sensor.fan_speed_2\n", encoding="utf-8"
         )
         (self.root / ".storage" / "core.restore_state").write_text(
             '{"entity_id":"sensor.fan_speed_2"}', encoding="utf-8"
