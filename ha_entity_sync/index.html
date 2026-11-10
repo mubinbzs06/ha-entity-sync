@@ -83,6 +83,7 @@ main{padding:28px clamp(16px,3vw,42px);min-width:0}.top{display:flex;align-items
 .top-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .export-toolbar{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 16px}
 .dashboard-live-preview{margin:10px 0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--panel)}.dashboard-live-preview iframe{display:block;width:100%;height:520px;border:0;background:#111}.dashboard-preview-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:8px 10px}.dashboard-preview-toolbar span{font-size:11px;color:var(--muted)}.dashboard-preview-button{margin:6px 0;padding:7px 10px;border:1px solid var(--line);border-radius:7px;background:var(--panel);color:var(--text);font-size:12px}.recover-action{margin:8px 0 4px}.rollback-action{margin:8px 0 4px;border:1px solid var(--amber);color:var(--amber)}.recovery-note{font-size:12px;color:var(--muted);margin:4px 0 10px}.recovery-history-meta{font-size:12px;color:var(--muted);overflow-wrap:anywhere}.recovery-history-status{font-weight:750;text-transform:capitalize}
+.repair-controls{margin:10px 0 14px;padding:12px;border:1px solid var(--line);border-radius:9px;background:var(--panel)}.repair-controls label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}.repair-controls input{width:100%;padding:9px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--text);margin-bottom:8px}.repair-diff{display:grid;gap:8px;margin:10px 0}.repair-diff pre{white-space:pre-wrap;overflow-wrap:anywhere;padding:10px;border-radius:7px;background:var(--bg);font-size:12px}.repair-diff .before{border-left:3px solid var(--red)}.repair-diff .after{border-left:3px solid var(--green)}.repair-apply{margin-top:8px}.workspace{margin:28px 0 34px;scroll-margin-top:20px}.workspace-head{display:flex;align-items:end;justify-content:space-between;gap:14px;margin:0 0 14px}.workspace-head h2{font-size:21px;margin:3px 0}.workspace-head p{color:var(--muted);font-size:13px;margin:3px 0 0;max-width:720px}.stat-primary{border-color:#39776d;background:linear-gradient(145deg,#17312f,#18242e)}.stat-primary .num{color:var(--accent)}.stat-hint{font-size:11px;color:var(--muted);margin-top:5px}.nav a{font-size:13px}.workspace .audit-section{margin-top:11px}.workspace .section-head{margin-top:0}
 </style>
 </head>
 <body>
@@ -91,33 +92,44 @@ main{padding:28px clamp(16px,3vw,42px);min-width:0}.top{display:flex;align-items
   <div class="brand">HA Entity Sync<small>Entity reference audit</small></div>
   <nav class="nav" aria-label="Main navigation">
     <a class="active" href="#overview">Overview</a>
-    <a href="#references">Entity references</a>
-    <a href="#safety">Safety & status</a>
+    <a href="#repairCenter">Repair Center</a>
+    <a href="#entityDirectory">Entity Directory</a>
+    <a href="#maintenanceRecovery">Maintenance & Recovery</a>
   </nav>
   <p class="aside-note">Local scan · Read-only<br>No cloud connection or telemetry</p>
 </aside>
 <main>
   <div class="mobile-brand">HA ENTITY SYNC · LOCAL HOME ASSISTANT AUDIT</div>
   <header class="top" id="overview">
-    <div><div class="eyebrow">Home Assistant · Local scan</div><h1>Entity health</h1><div class="sub">A clearer view of registered entities and where they are referenced.</div></div>
-    <div class="top-actions"><span class="pill">Automatic scan · Recovery requires approval</span><button class="primary" id="rescanButton" type="button">Rescan</button></div>
+    <div><div class="eyebrow">Home Assistant · Local scan</div><h1>Entity Sync</h1><div class="sub">Find broken references, identify the right replacement, and verify repairs in one workflow.</div></div>
+    <div class="top-actions"><span class="pill">Read-only scan · Repairs require approval</span><button class="primary" id="rescanButton" type="button">Rescan</button></div>
   </header>
   <div class="notice" id="safety">🛡️ <b>Read-only audit.</b> Recovery is a separate, explicitly approved action. It creates and verifies a Home Assistant backup first. Dashboard and YAML files are never edited.</div>
   <div id="status" role="status" aria-live="polite">Ready. A scan will start when the app opens.</div>
   <div class="scan-meta" id="scanMeta">Last scanned: — · Cache window: 60 seconds</div>
-  <section class="stats" id="stats" aria-label="Scan summary">
+  <section class="stats" id="stats" aria-label="Key scan metrics">
+    <div class="stat stat-primary"><div class="num">—</div><div class="label">Broken references to investigate</div><div class="stat-hint">Candidates requiring verification</div></div>
     <div class="stat"><div class="num">—</div><div class="label">Registered entities</div></div>
-    <div class="stat"><div class="num">—</div><div class="label">Entities referenced</div></div>
-    <div class="stat"><div class="num">—</div><div class="label">Reference hits</div></div>
-    <div class="stat"><div class="num">—</div><div class="label">Files scanned</div></div>
+    <div class="stat"><div class="num">—</div><div class="label">Entities actively used</div></div>
   </section>
-  <div class="notice secondary">Unregistered IDs are candidates for review, not confirmed broken references. Entity recovery changes registry IDs only after your confirmation; dashboard and YAML references remain untouched.</div>
-  <div class="export-toolbar"><button class="quiet" id="exportJson" type="button" disabled>Export JSON</button><button class="quiet" id="exportCsv" type="button" disabled>Export CSV</button></div>
-  <section id="references">
-    <div class="section-head"><div><h2>Entity references</h2><p>Groups stay folded until you open them. Expand an entity to see its exact file locations.</p></div></div>
+  <div class="notice secondary">A missing entity ID is a candidate until checked against live Home Assistant state. Similar names are discovery hints, never proof of identity. Every configuration repair requires a verified backup, preview, your approval, and rollback.</div>
+  <section id="repairCenter" class="workspace">
+    <div class="workspace-head"><div><div class="eyebrow">01 · Investigate and fix</div><h2>Repair Center</h2><p>Broken references, affected locations, replacement evidence, and the repair-and-verify workflow.</p></div></div>
+    <details class="audit-section" id="staleSection" open><summary class="audit-toggle">Broken references to investigate</summary><p class="intro">Find entity IDs referenced by your configuration but missing from the current registry or live state. Review exact usage and replacement evidence before any repair.</p><div id="staleResults"><div class="empty">Run a scan to check for candidates.</div></div></details>
+    <details class="audit-section" id="dashboardHealthSection"><summary class="audit-toggle">Dashboard health and live preview</summary><p class="intro">Check dashboard references against registry and live states, then inspect the affected dashboard in the same workflow.</p><div id="dashboardHealthResults"><div class="empty">Run a scan to check dashboard references.</div></div></details>
+    <details class="audit-section" id="readdedSection"><summary class="audit-toggle">Re-added device recovery</summary><p class="intro">Strong identity evidence is required. Each approved action creates and verifies a Home Assistant backup, quarantines the old entry, verifies the replacement, and retains an undo path.</p><div id="readdedResults"><div class="empty">Run a scan to check for re-added devices.</div></div></details>
+  </section>
+  <section id="entityDirectory" class="workspace">
+    <div class="workspace-head"><div><div class="eyebrow">02 · Find and understand</div><h2>Entity Directory</h2><p>Search registered entities and jump directly to exact configuration references and file lines.</p></div><div class="export-toolbar"><button class="quiet" id="exportJson" type="button" disabled>Export JSON</button><button class="quiet" id="exportCsv" type="button" disabled>Export CSV</button></div></div>
     <div class="search-sticky"><input class="search" id="filter" type="search" placeholder="Search entity IDs or file paths…" aria-label="Search entity IDs or file paths"></div>
     <div class="toolbar"><button class="quiet" id="expandAll" type="button">Expand groups</button><button class="quiet" id="collapseAll" type="button">Collapse all</button></div>
-    <section id="results"><div class="empty">No scan results yet.</div></section><details class="audit-section" id="readdedSection"><summary class="audit-toggle">Re-added device recovery</summary><p class="intro">Each action rechecks identity and live state, creates and verifies a Home Assistant backup, then restores the live replacement to the original ID. The old entry is quarantined so recovery can be undone. No dashboard or YAML files are edited.</p><div id="readdedResults"><div class="empty">Run a scan to check for re-added devices.</div></div></details><details class="audit-section" id="recoveryHistorySection"><summary class="audit-toggle">Recovery history and rollback</summary><p class="intro">Completed actions retain their backup reference and a rollback entry. Undo creates and verifies another backup before reversing the registry rename.</p><div id="recoveryHistoryResults"><div class="empty">No recovery actions recorded.</div></div></details><details class="audit-section" id="cleanNamesSection"><summary class="audit-toggle">Clean-name suggestions</summary><p class="intro">Shorter entity IDs with collision checks, confidence, and exact reference-line previews. Suggestions never rename entities.</p><div id="cleanNamesResults"><div class="empty">Run a scan to review naming suggestions.</div></div></details><details class="audit-section" id="staleSection"><summary class="audit-toggle">Potentially stale references</summary><p class="intro">Entity-like IDs found in reference contexts but absent from the current registry. These need human verification.</p><div id="staleResults"><div class="empty">Run a scan to check for candidates.</div></div></details><details class="audit-section" id="namingSection"><summary class="audit-toggle">Naming information</summary><p class="intro">Numeric suffixes and repeated words are informational observations. They may be intentional; no rename is recommended or performed.</p><div id="namingResults"><div class="empty">Run a scan to check entity names.</div></div></details>
+    <section id="results"><div class="empty">No scan results yet.</div></section>
+  </section>
+  <section id="maintenanceRecovery" class="workspace">
+    <div class="workspace-head"><div><div class="eyebrow">03 · Keep it safe</div><h2>Maintenance & Recovery</h2><p>Review completed actions, rollback points, and non-urgent entity maintenance.</p></div></div>
+    <details class="audit-section" id="recoveryHistorySection"><summary class="audit-toggle">Backup history and rollback</summary><p class="intro">Completed actions retain their verified backup reference and rollback entry. Undo creates and verifies another backup before reversing changes.</p><div id="recoveryHistoryResults"><div class="empty">No recovery actions recorded.</div></div></details>
+    <details class="audit-section" id="namingSection"><summary class="audit-toggle">Naming observations (secondary)</summary><p class="intro">Repeated words and numeric suffixes are informational only. They do not imply a problem and no rename is recommended.</p><div id="namingResults"><div class="empty">Run a scan to review naming observations.</div></div></details>
+    <details class="audit-section" id="cleanNamesSection"><summary class="audit-toggle">Name cleanup (parked)</summary><p class="intro">Deferred until broken-reference repair is working end to end. Suggestions never rename entities.</p><div id="cleanNamesResults"><div class="empty">Name cleanup is secondary to broken-reference repair.</div></div></details>
   </section>
 </main>
 </div>
@@ -188,14 +200,31 @@ function groupedResults(){
   }).join('')+'</div></details>';
  }).join('');
 }
+function renderDashboardHealth(){
+ const rows=(report?.dashboard_health||[]).filter(x=>(x.entity_id+" "+x.file+" "+x.health_status+" "+(x.health_detail||"")).toLowerCase().includes($("filter").value.trim().toLowerCase()));
+ if(!rows.length){$("dashboardHealthResults").innerHTML=report?.dashboard_health_checked===false?'<div class="empty">Live-state checking is unavailable. Dashboard reference health could not be verified.</div>':'<div class="empty">No dashboard references match this search.</div>';return;}
+ const labels={available:"Available",unavailable:"Unavailable",unknown:"Unknown",missing:"Missing from registry and live states",no_live_state:"Registered · no live state",not_checked:"Not checked"};
+ const colors={available:"var(--green)",unavailable:"var(--red)",unknown:"var(--amber)",missing:"var(--red)",no_live_state:"var(--amber)",not_checked:"var(--muted)"};
+ $("dashboardHealthResults").innerHTML=rows.map(x=>
+  '<div class="finding"><div class="finding-head"><span class="finding-title">'+esc(x.entity_id)+'</span><span class="count" style="color:'+(colors[x.health_status]||"var(--muted)")+'">'+esc(labels[x.health_status]||x.health_status)+'</span></div>'+
+  '<p>'+esc(x.health_detail)+'</p><p>Registry: '+esc(x.registry_status)+' · Live state: '+esc(x.live_state??"not present") +'</p>'+
+  ((x.card_context||[]).length?'<p><b>Card:</b> '+(x.card_context||[]).map(card=>esc(card.card_type)+(card.card_title?' · '+esc(card.card_title):'')+' · '+esc(card.card_path)).join('<br>')+'</p>':'<p class="recovery-note">Card-level context was not available in the stored dashboard format.</p>')+
+  usageEvidenceHtml(x,x.entity_id)+
+  (x.dashboard_url?'<button class="dashboard-preview-button" type="button" data-dashboard-url="'+esc(x.dashboard_url)+'">Preview dashboard</button>':'<p class="recovery-note">Dashboard preview route is unavailable.</p>')+
+  '</div>'
+ ).join("");
+}
 function renderStale(){
  const q=$('filter').value.trim().toLowerCase();
  const rows=(report?.potentially_stale||[]).filter(x=>(x.entity_id+' '+x.file+' '+(x.priority||'')).toLowerCase().includes(q));
  const entities=new Map();
  for(const item of rows){if(!entities.has(item.entity_id))entities.set(item.entity_id,[]);entities.get(item.entity_id).push(item);}
  if(!entities.size){$('staleResults').innerHTML='<div class="empty">No candidate matches in this scan.</div>';return;}
- $('staleResults').innerHTML=[...entities.entries()].map(([id,refs])=>'<details class="candidate"><summary><span class="entity-id">'+esc(id)+'</span><span class="count">'+refs.reduce((n,r)=>n+r.count,0)+' candidate hit(s) · '+refs.length+' file(s)</span></summary><p><b>'+esc(refs[0].priority||'Needs review')+'</b> · Not in the current entity registry. This may be stale, historical, integration-managed, or otherwise valid in context.</p>'+refs.map(evidenceHtml).join('')+'</details>').join('');
+ $('staleResults').innerHTML=[...entities.entries()].map(([id,refs])=>'<details class="candidate"><summary><span class="entity-id">'+esc(id)+'</span><span class="count">'+refs.reduce((n,r)=>n+r.count,0)+' candidate hit(s) · '+refs.length+' file(s)</span></summary><p><b>'+esc(refs[0].priority||'Needs review')+'</b> · Not in the current entity registry. This may be stale, historical, integration-managed, or otherwise valid in context.</p>'+refs.map(ref=>evidenceHtml(ref)+
+  (ref.category==='Historical'?'':'<div class="repair-controls"><label>Replacement entity ID</label><input type="text" class="repair-replacement" placeholder="Enter verified existing entity ID" autocomplete="off"><button class="quiet" type="button" data-repair-preview="1" data-old-id="'+esc(id)+'" data-file="'+esc(ref.file)+'">Preview reference repair</button><div class="repair-preview"></div></div>')
+ ).join('')+'</details>').join('');
 }
+
 function renderReadded(){
  const rows=(report?.readded_pairs||[]).filter(x=>(x.old_entity_id+' '+x.replacement_entity_id+' '+x.integration+' '+x.device_name).toLowerCase().includes($('filter').value.trim().toLowerCase()));
  if(!rows.length){$('readdedResults').innerHTML='<div class="empty">'+esc(report?.readded_detection_note||'No confirmed re-add pairs found. Live state access is required.')+'</div>';return;}
@@ -317,7 +346,7 @@ function render(){
  if(!report)return;
  const html=groupedResults();
  $('results').innerHTML=html||'<div class="empty">No matching registered references.</div>';
- renderStale();renderReadded();renderRecoveryHistory();renderCleanNames();renderNaming();
+ renderDashboardHealth();renderStale();renderReadded();renderRecoveryHistory();renderCleanNames();renderNaming();
 }
 async function runScan(force=false){
  report=null;
@@ -333,22 +362,11 @@ async function runScan(force=false){
   const nextReport=await response.json();
   if(!nextReport.ok){$('status').textContent=nextReport.error;return;}
   report=nextReport;
-  const warnings=report.scan_warnings||[]; $('status').textContent='Scan complete. The scan made no changes. Recovery requires your explicit approval.'+(warnings.length?' Warning: '+warnings.join(' '):'');
-  $('stats').innerHTML=[
-   ['Registered entities',report.registered_entities],
-   ['Entities with any references',report.entities_with_any_references],
-   ['Entities with active references',report.entities_with_active_references],
-   ['Historical-only entities',report.entities_with_historical_only_references],
-   ['Needs-review-only entities',report.entities_with_needs_review_only_references],
-   ['Unreferenced entities',report.unreferenced_entities],
-   ['Reference records (entity/file groups)',report.reference_records],
-   ['Reference hits (ID occurrences)',report.reference_hits],
-   ['Files scanned',report.files_scanned],
-   ['Stale candidates',report.potentially_stale_entities||0,'staleSection'],
-   ['Re-add pairs',report.readded_pairs_count||0,'readdedSection'],
-   ['Clean-name suggestions',report.clean_name_suggestions_count||0,'cleanNamesSection'],
-   ['Naming findings',report.naming_findings_count||0,'namingSection']
-  ].map(([label,value,target])=>'<'+(target?'button class="stat stat-link" type="button" data-scroll-to="'+target+'"':'div class="stat"')+'><div class="num">'+esc(value??0)+'</div><div class="label">'+esc(label)+'</div>'+(target?'</button>':'</div>')).join('');
+  const warnings=report.scan_warnings||[]; $('status').textContent='Scan complete. The scan made no changes. Recovery requires your explicit approval.'+(warnings.length?' Warning: '+warnings.join(' '):'');  $('stats').innerHTML=[
+   ['Broken references to investigate',report.potentially_stale_entities||0,'staleSection','Candidates; verify before repair'],
+   ['Registered entities',report.registered_entities||0,null,'Current registry total'],
+   ['Entities actively used',report.entities_with_active_references||0,null,'At least one active reference']
+  ].map(([label,value,target,hint],index)=>'<'+(target?'button class="stat stat-primary stat-link" type="button" data-scroll-to="'+target+'"':'div class="stat"')+'><div class="num">'+esc(value)+'</div><div class="label">'+esc(label)+'</div><div class="stat-hint">'+esc(hint)+'</div>'+(target?'</button>':'</div>')).join('');
   const scannedAt=report.last_scanned_at?new Date(report.last_scanned_at).toLocaleString():'Unknown';
   $('scanMeta').textContent='Last scanned: '+scannedAt+' · '+(report.cache_hit?'Cached result':'Fresh scan')+' · '+Number(report.scan_duration_seconds||0).toFixed(2)+'s';
   $('exportJson').disabled=false;$('exportCsv').disabled=false;
@@ -359,8 +377,10 @@ function clearSession(){
  report=null;
  $('status').textContent='Ready. A fresh read-only scan will run when the app opens.';
  $('stats').innerHTML=[
-  ['Registered entities','—'],['Entities with any references','—'],['Entities with active references','—'],['Historical-only entities','—'],['Needs-review-only entities','—'],['Unreferenced entities','—'],['Reference records','—'],['Reference hits','—'],['Files scanned','—']
- ].map(([label,value])=>'<div class="stat"><div class="num">'+value+'</div><div class="label">'+label+'</div></div>').join('');
+  ['Broken references to investigate','—','staleSection','Candidates; verify before repair'],
+  ['Registered entities','—',null,'Current registry total'],
+  ['Entities actively used','—',null,'At least one active reference']
+ ].map(([label,value,target,hint])=>'<'+(target?'button class="stat stat-primary stat-link" type="button" data-scroll-to="'+target+'"':'div class="stat"')+'><div class="num">'+value+'</div><div class="label">'+label+'</div><div class="stat-hint">'+hint+'</div>'+(target?'</button>':'</div>')).join('');
  $('results').innerHTML='<div class="empty">No scan results yet.</div>';
  $('staleResults').innerHTML='<div class="empty">Run a scan to check for candidates.</div>';
  $('namingResults').innerHTML='<div class="empty">Run a scan to check entity names.</div>';
@@ -378,7 +398,7 @@ $('rescanButton').addEventListener('click',()=>runScan(true));
 function exportData(){
  const active=(report?.results||[]).filter(item=>item.category==='Active configuration'||item.category==='Dashboard');
  const review=(report?.results||[]).filter(item=>item.category==='Needs review');
- return {exported_at:new Date().toISOString(),last_scanned_at:report?.last_scanned_at||null,read_only:true,active_dependencies:active,needs_review_references:review,stale_candidates:report?.potentially_stale||[],readded_pairs:report?.readded_pairs||[],clean_name_suggestions:report?.clean_name_suggestions||[]};
+ return {exported_at:new Date().toISOString(),last_scanned_at:report?.last_scanned_at||null,read_only:true,dashboard_health:report?.dashboard_health||[],dashboard_health_checked:report?.dashboard_health_checked??false,active_dependencies:active,needs_review_references:review,stale_candidates:report?.potentially_stale||[],readded_pairs:report?.readded_pairs||[],clean_name_suggestions:report?.clean_name_suggestions||[]};
 }
 function downloadFile(name,type,content){
  const blob=new Blob([content],{type});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
@@ -528,6 +548,41 @@ async function recoveryRequest(path,data){
  return result;
 }
 document.addEventListener('click',async e=>{
+ const repairPreview=e.target.closest('[data-repair-preview]');
+ if(repairPreview){
+  const controls=repairPreview.closest('.repair-controls');
+  const replacement=controls.querySelector('.repair-replacement').value.trim();
+  const oldId=repairPreview.getAttribute('data-old-id');
+  const file=repairPreview.getAttribute('data-file');
+  const panel=controls.querySelector('.repair-preview');
+  if(!replacement){window.alert('Enter the replacement entity ID first.');return;}
+  repairPreview.disabled=true;repairPreview.textContent='Preparing preview…';
+  try{
+   const plan=await recoveryRequest('api/config-repair/preview',{file,old_entity_id:oldId,replacement_entity_id:replacement});
+   panel.innerHTML='<div class="repair-diff"><div><b>Before · '+esc(plan.occurrences)+' occurrence(s)</b><pre class="before">'+esc(plan.before)+'</pre></div><div><b>After</b><pre class="after">'+esc(plan.after)+'</pre></div></div><p class="recovery-note">This changes only this configuration file. A verified file backup is created immediately before applying. The selected replacement must already exist and be live.</p><button class="primary repair-apply" type="button" data-repair-apply="1" data-file="'+esc(file)+'" data-old-id="'+esc(oldId)+'" data-new-id="'+esc(replacement)+'" data-sha="'+esc(plan.before_sha256)+'">Approve and apply repair</button>';
+  }catch(error){panel.innerHTML='<p class="viewer-error">'+esc(error.message)+'</p>';}
+  repairPreview.disabled=false;repairPreview.textContent='Preview reference repair';
+  return;
+ }
+ const repairApply=e.target.closest('[data-repair-apply]');
+ if(repairApply){
+  const file=repairApply.getAttribute('data-file');
+  const oldId=repairApply.getAttribute('data-old-id');
+  const replacement=repairApply.getAttribute('data-new-id');
+  if(!window.confirm('Apply this exact repair?\n\n'+oldId+' → '+replacement+'\nFile: '+file+'\n\nEntity Sync will verify a pre-repair backup, update only this file, and verify the result.')){
+   return;
+  }
+  repairApply.disabled=true;repairApply.textContent='Backing up and applying…';
+  try{
+   const result=await recoveryRequest('api/config-repair/apply',{file,old_entity_id:oldId,replacement_entity_id:replacement,expected_sha256:repairApply.getAttribute('data-sha')});
+   await runScan(true);
+   window.alert('Configuration repair completed and verified.\nBackup record: '+result.record.id+'\nFile: '+result.record.file+'\nOccurrences updated: '+result.record.occurrences);
+  }catch(error){
+   repairApply.disabled=false;repairApply.textContent='Approve and apply repair';
+   window.alert('Repair was not completed.\n\n'+error.message);
+  }
+  return;
+ }
  const dashboardPreview=e.target.closest('[data-dashboard-url]');
  if(dashboardPreview){
   const url=dashboardPreview.getAttribute('data-dashboard-url')||'';

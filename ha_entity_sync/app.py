@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Read-only Home Assistant entity reference auditor."""
 import json
+import difflib
 import os
 import re
 import threading
@@ -11,6 +12,7 @@ from collections import Counter
 from datetime import datetime, timezone
 
 from recovery import RecoveryError, load_audit, recover_entity_pair, rollback_entity_recovery
+from config_repair import ConfigRepairError, preview_config_repair, apply_config_repair, rollback_config_repair
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -20,7 +22,7 @@ REGISTRY = CONFIG / ".storage" / "core.entity_registry"
 MAX_FILE_BYTES = 5 * 1024 * 1024
 MAX_SCAN_FILES = 5000
 MAX_SCAN_BYTES = 100 * 1024 * 1024
-VERSION = "0.2.16"
+VERSION = "0.3.0"
 PORT = 8099
 SCAN_CACHE_SECONDS = 60
 IGNORED_STALE_DOMAINS = {"conversation"}
@@ -71,6 +73,65 @@ lock media_player notify number persistent_notification person remote scene
  script select sensor siren stt sun switch text time todo tts update vacuum
  valve water_heater weather zone
 """.split())
+
+
+def load_deleted_entity_history():
+    """Read Home Assistant's deleted entity registry entries for explanatory context."""
+    try:
+        if not safe_config_file(REGISTRY) or not REGISTRY.is_file():
+            return {}
+        data = json.loads(REGISTRY.read_text(encoding="utf-8"))
+        deleted = data.get("data", {}).get("deleted_entities", [])
+        if isinstance(deleted, dict):
+            deleted = list(deleted.values())
+        if not isinstance(deleted, list):
+            return {}
+        history = {}
+        for item in deleted:
+            if not isinstance(item, dict):
+                continue
+            entity_id = item.get("entity_id")
+            if entity_id:
+                history[entity_id] = {
+                    "platform": item.get("platform"),
+                    "modified_at": item.get("modified_at"),
+                }
+        return history
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def suggest_missing_entity_replacement(entity_id, known_entity_ids, deleted_history=None):
+    """Return Spook-style same-domain fuzzy suggestion; never treat it as identity proof."""
+    deleted = (deleted_history or {}).get(entity_id)
+    if deleted:
+        return {
+            "entity_id": None,
+            "confidence": "none",
+            "method": "deleted_entity_history",
+            "detail": "The missing ID appears in Home Assistant's deleted-entity history.",
+            "deleted_platform": deleted.get("platform"),
+            "deleted_at": deleted.get("modified_at"),
+        }
+    domain = entity_id.split(".", 1)[0]
+    candidates = sorted(
+        candidate for candidate in known_entity_ids
+        if candidate.split(".", 1)[0] == domain and candidate != entity_id
+    )
+    # Spook's threshold is 0.8. This is discovery only, not an identity decision.
+    matches = difflib.get_close_matches(entity_id, candidates, n=1, cutoff=0.8)
+    if not matches:
+        return {
+            "entity_id": None, "confidence": "none",
+            "method": "same_domain_fuzzy", "detail": "No sufficiently similar same-domain entity was found."
+        }
+    return {
+        "entity_id": matches[0],
+        "confidence": "name_similarity_only",
+        "method": "same_domain_fuzzy",
+        "similarity_cutoff": 0.8,
+        "detail": "Possible replacement based on same-domain entity-ID similarity only; verify identity before repair.",
+    }
 
 
 def load_registry():
@@ -299,7 +360,6 @@ def line_update_evidence(reference, old_id, new_id):
             })
     return updates
 
-
 def evaluate_replacement_identity(old, replacement):
     """Return transparent identity evidence; names never establish identity."""
     evidence = []
@@ -377,6 +437,80 @@ def enrich_dashboard_references(references):
     return enriched
 
 
+def find_dashboard_card_context(file_path, entity_id):
+    """Return Lovelace card objects that contain an entity reference, when JSON is parseable."""
+    path = CONFIG / file_path
+    try:
+        if not safe_config_file(path) or not path.is_file() or path.stat().st_size > MAX_FILE_BYTES:
+            return []
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError, TypeError):
+        return []
+
+    def contains_entity(value):
+        if isinstance(value, str):
+            return re.search(r"(?<![A-Za-z0-9_])" + re.escape(entity_id) + r"(?![A-Za-z0-9_])", value) is not None
+        if isinstance(value, dict):
+            return any(contains_entity(child) for child in value.values())
+        if isinstance(value, list):
+            return any(contains_entity(child) for child in value)
+        return False
+
+    found = []
+    def walk(value, location="dashboard"):
+        if isinstance(value, dict):
+            card_path = ".cards[" in location or ".elements[" in location
+            if card_path and isinstance(value.get("type"), str) and contains_entity(value):
+                title = value.get("title") or value.get("name") or value.get("label") or value.get("heading")
+                found.append({"card_type": value.get("type"), "card_title": title or "", "card_path": location})
+            for key, child in value.items():
+                walk(child, location + "." + str(key))
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                walk(child, location + "[" + str(index) + "]")
+    walk(payload)
+    return found
+
+def build_dashboard_health(dashboard_references, registry, live_states):
+    """Classify every discovered dashboard entity reference against registry and live states."""
+    registered = {item["entity_id"] for item in registry}
+    routes = dashboard_route_index()
+    card_context_cache = {}
+    health = []
+    for reference in dashboard_references:
+        entity_id = reference.get("entity_id")
+        if not entity_id:
+            continue
+        is_registered = entity_id in registered
+        state_record = live_states.get(entity_id) if live_states is not None else None
+        state = state_record.get("state") if state_record else None
+        if live_states is None:
+            status = "not_checked"
+            detail = "Live-state API was unavailable; availability cannot be confirmed."
+        elif state_record is not None and state == "unavailable":
+            status = "unavailable"
+            detail = "The entity exists in Home Assistant live states but its state is unavailable."
+        elif state_record is not None and state == "unknown":
+            status = "unknown"
+            detail = "The entity exists in Home Assistant live states but its state is unknown."
+        elif state_record is not None:
+            status = "available"
+            detail = "The entity is present in Home Assistant live states."
+        elif is_registered:
+            status = "no_live_state"
+            detail = "The entity is registered but is not currently present in live states."
+        else:
+            status = "missing"
+            detail = "The dashboard references an ID absent from both the entity registry and live states."
+        item = dict(reference)
+        file_path = reference.get("file", "")
+        context_key = (file_path, entity_id)
+        if context_key not in card_context_cache:
+            card_context_cache[context_key] = find_dashboard_card_context(file_path, entity_id)
+        item.update({"registry_status": "registered" if is_registered else "not_registered", "live_state": state, "health_status": status, "health_detail": detail, "dashboard_url": routes.get(file_path), "dashboard_preview_available": bool(routes.get(file_path)), "card_context": card_context_cache[context_key]})
+        health.append(item)
+    health.sort(key=lambda item: ({"missing": 0, "unavailable": 1, "unknown": 2, "no_live_state": 3, "not_checked": 4, "available": 5}.get(item["health_status"], 6), item["entity_id"], item.get("file", "")))
+    return health
 def dashboard_route_index():
     """Map Lovelace storage files to their Home Assistant dashboard URL paths."""
     routes = {".storage/lovelace": "/lovelace"}
@@ -611,7 +745,7 @@ def scan():
                         entry["lines"].append(line_no)
                         entry["matches"].append(evidence)
                 elif entity_id.split(".", 1)[0] not in IGNORED_STALE_DOMAINS and entity_id.split(".", 1)[0] in known_domains and (
-                    category == "Historical" or ENTITY_CONTEXT_RE.search(line)
+                    category in {"Historical", "Dashboard"} or ENTITY_CONTEXT_RE.search(line)
                 ):
                     key = (entity_id, rel)
                     entry = candidates.setdefault(key, {
@@ -621,6 +755,8 @@ def scan():
                         "reason": (
                             "Historical record contains an entity-like ID absent from the current registry."
                             if category == "Historical"
+                            else "Dashboard contains an entity-like ID absent from the current registry; verify the reference and any replacement."
+                            if category == "Dashboard"
                             else "Entity-like ID in an entity-reference context, but absent from the current registry."
                         )
                     })
@@ -645,13 +781,36 @@ def scan():
     for item in stale:
         rank = candidate_priority(item["entity_id"])
         item["priority"] = "Active/dashboard evidence" if rank == 0 else "Needs review evidence" if rank == 1 else "Historical-only evidence"
+    live_states = fetch_live_states()
+    deleted_history = load_deleted_entity_history()
+    known_for_suggestions = set(entity_ids)
+    if live_states is not None:
+        known_for_suggestions.update(live_states.keys())
+        # State-only entities are valid Home Assistant entities even without registry entries.
+        stale = [item for item in stale if item["entity_id"] not in live_states]
+    stale_by_id = {}
+    for item in stale:
+        stale_by_id.setdefault(item["entity_id"], []).append(item)
+    for missing_id, references_for_id in stale_by_id.items():
+        suggestion = suggest_missing_entity_replacement(
+            missing_id, known_for_suggestions, deleted_history
+        )
+        for item in references_for_id:
+            item["replacement_suggestion"] = suggestion
+            item["broken_status"] = (
+                "confirmed_missing" if live_states is not None
+                else "unverified_live_state_unavailable"
+            )
+    dashboard_references = [item for item in results + stale if item.get("category") == "Dashboard"]
+    dashboard_health = build_dashboard_health(dashboard_references, registry, live_states)
+    dashboard_health_counts = {status: sum(1 for item in dashboard_health if item["health_status"] == status) for status in ("available", "unavailable", "unknown", "missing", "no_live_state", "not_checked")}
     naming_findings = naming_audit(registry)
     usage_by_entity = {}
     for reference in results:
         usage_by_entity.setdefault(reference["entity_id"], []).append(reference)
     for finding in naming_findings:
         finding["usage"] = usage_by_entity.get(finding["entity_id"], [])
-    readded_pairs, readded_note = detect_readded_pairs(registry, results, fetch_live_states(), load_device_names())
+    readded_pairs, readded_note = detect_readded_pairs(registry, results, live_states, load_device_names())
     clean_name_suggestions = build_clean_name_suggestions(registry, results)
     referenced_entities = {item["entity_id"] for item in results}
     active_entities = {item["entity_id"] for item in results if item["category"] in {"Active configuration", "Dashboard"}}
@@ -689,6 +848,10 @@ def scan():
         "last_scanned_at": scanned_at,
         "category_hits": category_hits,
         "results": results,
+        "dashboard_health": dashboard_health,
+        "dashboard_health_count": len(dashboard_health),
+        "dashboard_health_counts": dashboard_health_counts,
+        "dashboard_health_checked": live_states is not None,
         "potentially_stale": stale,
         "potentially_stale_entities": len({item["entity_id"] for item in stale}),
         "potentially_stale_hits": sum(item["count"] for item in stale),
@@ -728,6 +891,23 @@ def get_scan_report(force=False):
             _scan_cache["report"] = report
             _scan_cache["created"] = time.monotonic()
         return {**report, "cache_hit": False}
+
+
+def validate_broken_reference_pair(old_id, replacement_id):
+    """Only repair genuinely missing IDs using a currently registered, live replacement."""
+    if not old_id or not replacement_id or old_id.split(".", 1)[0] != replacement_id.split(".", 1)[0]:
+        raise ConfigRepairError("Choose a replacement in the same entity domain.")
+    registry_ids = {item["entity_id"] for item in load_registry()}
+    live_states = fetch_live_states()
+    if live_states is None:
+        raise ConfigRepairError("Live Home Assistant states are unavailable; repair is blocked.")
+    if old_id in registry_ids or old_id in live_states:
+        raise ConfigRepairError("The old entity still exists in Home Assistant. It may be unavailable rather than broken; no repair was made.")
+    if replacement_id not in registry_ids or replacement_id not in live_states:
+        raise ConfigRepairError("The replacement must be present in both the entity registry and live Home Assistant states.")
+    if live_states[replacement_id].get("state") in {"unavailable", "unknown"}:
+        raise ConfigRepairError("The replacement entity is not currently available.")
+    return True
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -784,7 +964,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         route = urlparse(self.path).path
-        if route not in {"/api/recover", "/api/rollback"}:
+        if route not in {"/api/recover", "/api/rollback", "/api/config-repair/preview", "/api/config-repair/apply", "/api/config-repair/rollback"}:
             self.send_error(405, "Only approved entity recovery actions are accepted")
             return
         origin = self.headers.get("Origin")
@@ -830,16 +1010,44 @@ class Handler(BaseHTTPRequestHandler):
                     str(request_data.get("replacement_entity_id") or ""),
                     fetch_live_states,
                 )
-            else:
+            elif route == "/api/rollback":
                 result = rollback_entity_recovery(
                     str(request_data.get("record_id") or ""),
                     fetch_live_states,
                 )
-            status = 200 if result.get("ok") else 409
+            elif route == "/api/config-repair/preview":
+                validate_broken_reference_pair(
+                    str(request_data.get("old_entity_id") or ""),
+                    str(request_data.get("replacement_entity_id") or ""),
+                )
+                result = preview_config_repair(
+                    CONFIG,
+                    str(request_data.get("file") or ""),
+                    str(request_data.get("old_entity_id") or ""),
+                    str(request_data.get("replacement_entity_id") or ""),
+                )
+            elif route == "/api/config-repair/apply":
+                validate_broken_reference_pair(
+                    str(request_data.get("old_entity_id") or ""),
+                    str(request_data.get("replacement_entity_id") or ""),
+                )
+                result = apply_config_repair(
+                    CONFIG,
+                    str(request_data.get("file") or ""),
+                    str(request_data.get("old_entity_id") or ""),
+                    str(request_data.get("replacement_entity_id") or ""),
+                    str(request_data.get("expected_sha256") or ""),
+                )
+            else:
+                result = rollback_config_repair(
+                    CONFIG,
+                    str(request_data.get("record_id") or ""),
+                )
+            status = 200 if result.get("ok", True) else 409
         except (ValueError, UnicodeError) as err:
             result = {"ok": False, "status": "invalid_request", "error": str(err)}
             status = 400
-        except RecoveryError as err:
+        except (RecoveryError, ConfigRepairError) as err:
             result = {"ok": False, "status": "blocked", "error": str(err)}
             status = 409
         except Exception as err:

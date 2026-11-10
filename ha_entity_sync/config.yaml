@@ -1,7 +1,7 @@
 name: HA Entity Sync
-version: "0.2.16"
+version: "0.3.0"
 slug: ha_entity_sync
-description: Entity audit with explicitly approved, backed-up re-add recovery
+description: Broken entity reference detection and explicitly approved, backed-up repair
 url: https://github.com/mubinbzs06/ha-entity-sync
 arch:
   - aarch64

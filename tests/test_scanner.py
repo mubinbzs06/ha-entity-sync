@@ -86,6 +86,33 @@ class ScannerTests(unittest.TestCase):
         self.assertEqual(report["reference_records"], len(report["results"]))
         self.assertEqual(report["reference_hits"], sum(x["count"] for x in report["results"]))
 
+    def test_spook_style_suggestion_uses_same_domain_and_0_8_cutoff(self):
+        suggestion = app.suggest_missing_entity_replacement(
+            "sensor.living_room_temperatur",
+            {"sensor.living_room_temperature", "binary_sensor.living_room_temperature"},
+        )
+        self.assertEqual(suggestion["entity_id"], "sensor.living_room_temperature")
+        self.assertEqual(suggestion["confidence"], "name_similarity_only")
+        self.assertEqual(suggestion["similarity_cutoff"], 0.8)
+
+    def test_spook_style_suggestion_does_not_cross_domains(self):
+        suggestion = app.suggest_missing_entity_replacement(
+            "sensor.living_room_motion",
+            {"binary_sensor.living_room_motion"},
+        )
+        self.assertIsNone(suggestion["entity_id"])
+        self.assertEqual(suggestion["confidence"], "none")
+
+    def test_deleted_entity_history_takes_precedence_over_fuzzy_match(self):
+        suggestion = app.suggest_missing_entity_replacement(
+            "sensor.living_room_temperatur",
+            {"sensor.living_room_temperature"},
+            {"sensor.living_room_temperatur": {"platform": "mqtt", "modified_at": "2026-11-01T00:00:00+00:00"}},
+        )
+        self.assertEqual(suggestion["method"], "deleted_entity_history")
+        self.assertIsNone(suggestion["entity_id"])
+        self.assertEqual(suggestion["deleted_platform"], "mqtt")
+
     def test_conversation_domain_is_ignored_for_stale_candidates(self):
         (self.root / "automations.yaml").write_text(
             "entity_id: conversation.home_assistant\n", encoding="utf-8"
@@ -519,6 +546,43 @@ class ScannerTests(unittest.TestCase):
 if __name__ == "__main__":
     unittest.main()
 
+    def test_dashboard_health_classifies_available_unavailable_unknown_and_missing(self):
+        references = [
+            {"entity_id": "sensor.ready", "file": ".storage/lovelace", "category": "Dashboard", "count": 1, "lines": [1], "matches": []},
+            {"entity_id": "sensor.down", "file": ".storage/lovelace", "category": "Dashboard", "count": 1, "lines": [2], "matches": []},
+            {"entity_id": "sensor.uncertain", "file": ".storage/lovelace", "category": "Dashboard", "count": 1, "lines": [3], "matches": []},
+            {"entity_id": "sensor.retired_dashboard_id", "file": ".storage/lovelace", "category": "Dashboard", "count": 1, "lines": [4], "matches": []},
+        ]
+        registry = [{"entity_id": "sensor.ready"}, {"entity_id": "sensor.down"}, {"entity_id": "sensor.uncertain"}]
+        live = {"sensor.ready": {"state": "on"}, "sensor.down": {"state": "unavailable"}, "sensor.uncertain": {"state": "unknown"}}
+        result = app.build_dashboard_health(references, registry, live)
+        statuses = {item["entity_id"]: item["health_status"] for item in result}
+        self.assertEqual(statuses["sensor.ready"], "available")
+        self.assertEqual(statuses["sensor.down"], "unavailable")
+        self.assertEqual(statuses["sensor.uncertain"], "unknown")
+        self.assertEqual(statuses["sensor.retired_dashboard_id"], "missing")
+
+    def test_dashboard_health_does_not_claim_missing_when_live_api_unavailable(self):
+        result = app.build_dashboard_health([{"entity_id": "sensor.old", "file": ".storage/lovelace", "category": "Dashboard"}], [], None)
+        self.assertEqual(result[0]["health_status"], "not_checked")
+
+    def test_dashboard_scan_surfaces_unregistered_id_even_without_entity_context_key(self):
+        dashboard = self.root / ".storage" / "lovelace.dashboard_test"
+        dashboard.write_text('{"data":{"config":{"custom_label":"sensor.dashboard_missing"}}}', encoding="utf-8")
+        report = app.scan()
+        stale = [item for item in report["potentially_stale"] if item["entity_id"] == "sensor.dashboard_missing"]
+        self.assertTrue(stale)
+        health = [item for item in report["dashboard_health"] if item["entity_id"] == "sensor.dashboard_missing"]
+        self.assertTrue(health)
+        self.assertEqual(health[0]["registry_status"], "not_registered")
+    def test_dashboard_health_identifies_nested_lovelace_card(self):
+        dashboard = self.root / ".storage" / "lovelace.dashboard_test"
+        dashboard.write_text(json.dumps({"data": {"config": {"views": [{"cards": [{"type": "sensor", "entity": "sensor.dashboard_missing", "name": "Pi-hole Ads"}]}]}}}), encoding="utf-8")
+        context = app.find_dashboard_card_context(".storage/lovelace.dashboard_test", "sensor.dashboard_missing")
+        self.assertEqual(len(context), 1)
+        self.assertEqual(context[0]["card_type"], "sensor")
+        self.assertEqual(context[0]["card_title"], "Pi-hole Ads")
+        self.assertIn("cards[0]", context[0]["card_path"])
 
 class ReplacementIdentityEvidenceTests(unittest.TestCase):
     def test_evaluator_exposes_strong_match_and_missing_metadata(self):
