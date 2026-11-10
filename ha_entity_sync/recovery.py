@@ -222,11 +222,14 @@ def create_verified_backup(required_entity_ids, label, expected_entries=None):
         raise RecoveryError(f"Backup {slug} does not confirm Home Assistant is included.")
     if info.get("protected"):
         raise RecoveryError(
-            "Supervisor created an encrypted backup. Entity Sync cannot inspect this backup format yet; "
+            f"Supervisor created encrypted backup {slug}. Entity Sync cannot inspect this backup format yet; "
             "no registry changes were made."
         )
     archive = _supervisor_request(f"/backups/{slug}/download", binary=True)
-    verify_backup_archive(archive, required_entity_ids, expected_entries)
+    try:
+        verify_backup_archive(archive, required_entity_ids, expected_entries)
+    except RecoveryError as err:
+        raise RecoveryError(f"Backup {slug} was created but could not be verified: {err}") from err
     return {"slug": slug, "name": info.get("name") or name, "date": info.get("date")}
 
 
