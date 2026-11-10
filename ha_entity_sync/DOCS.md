@@ -1,6 +1,6 @@
-# HA Entity Sync — Build 2.7
+# HA Entity Sync — Build 2.8
 
-**App version: 0.2.7**
+**App version: 0.2.8**
 
 Build 2.7 adds a read-only historical reference audit while keeping active dependencies separate.
 
@@ -24,6 +24,10 @@ All other `.storage` internals remain excluded, including auth data, config entr
 ## Naming observations
 
 Numeric suffixes and repeated words are informational observations only. The app does not generate replacement entity IDs or imply that these patterns should be changed.
+
+## Naming review usage locations
+
+Each naming observation now includes the registered entity's references found in the current scan scope, grouped as active usage and historical usage. Each entry shows its category, file path, matching line/context, and a read-only Open file action. Historical records remain separate and are not counted as active dependencies. If no references are found, the finding says so explicitly.
 
 ## Existing audit behavior
 
