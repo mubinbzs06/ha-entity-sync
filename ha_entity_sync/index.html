@@ -139,7 +139,7 @@ function usageEvidenceHtml(item,entityId){
  const lines=matches.length?matches:[{line:(item.lines||[])[0]||1,text:''}];
  return '<div class="usage-ref"><div class="usage-file">'+esc(item.file)+'</div><span class="usage-category '+categoryClass(item.category)+'">'+esc(item.category)+'</span>'+
  lines.map(match=>'<div class="usage-line"><button class="line-link" type="button" data-open-file="'+esc(item.file)+'" data-line="'+esc(match.line)+'" data-entity-id="'+esc(entityId)+'">Line '+esc(match.line)+' ↗</button><div class="usage-preview">'+highlightEntity(match.text||'',entityId)+
- (match.text?'<details class="usage-full"><summary>View full reference</summary><code>'+highlightEntity(match.text,entityId)+'</code></details>':'')+'</div></div>').join('')+'</div>';
+ (match.text?'<details class="usage-full"><summary>View full reference</summary><code>'+highlightEntity(match.full_text||match.text,entityId)+'</code>'+(match.full_text_truncated?'<div class="line">Line preview limited to 10,000 characters.</div>':'')+'</details>':'')+'</div></div>').join('')+'</div>';
 }
 function usageSection(title,items,entityId){
  if(!items.length)return '';
