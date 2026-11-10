@@ -1,6 +1,6 @@
-# HA Entity Sync — Build 2.8
+# HA Entity Sync — Build 2.10
 
-**App version: 0.2.8**
+**App version: 0.2.11**
 
 Build 2.7 adds a read-only historical reference audit while keeping active dependencies separate.
 
@@ -23,7 +23,7 @@ All other `.storage` internals remain excluded, including auth data, config entr
 
 ## Naming observations
 
-Numeric suffixes and repeated words are informational observations only. The app does not generate replacement entity IDs or imply that these patterns should be changed.
+Numeric suffixes and repeated words remain informational observations. Separate clean-name plans may propose collapsing an immediately repeated name sequence or removing a registry-confirmed integration prefix; they include collision status, confidence, and exact active-reference line previews.
 
 ## Naming review usage locations
 
@@ -40,6 +40,10 @@ Each naming observation now includes the registered entity's references found in
 ## Safety and limitations
 
 - The Home Assistant configuration mount remains read-only.
+- Re-add detection reads live Home Assistant states through the Supervisor proxy and corroborates identity using device/config-entry/integration metadata.
+- Re-add plans require an unavailable/orphaned original entity and a live suffixed replacement. Plans list active dashboard/YAML references that should resolve again after a future approved registry repair.
+- Historical restore-state and trace references are not included in repair plans.
+- The add-on requests Home Assistant API access for read-only state lookup; the configuration mount remains read-only.
 - No entity rename, configuration write, service call, backup/restore, or HA restart is implemented.
 - POST requests remain disabled.
 - Custom domains and unusual reference syntax may be missed.
@@ -47,4 +51,9 @@ Each naming observation now includes the registered entity's references found in
 
 Persistent entity database, scan history/diff, confirmed broken-reference validation, impact previews, verified backup/rollback, and approved repair remain future work.
 
-**Golden rule:** no future modification without a verified backup, explicit approval, and a usable rollback path.
+**Golden rule:** no change without a specific user-approved plan, a verified Supervisor backup, recoverable per-file backups, pre-apply validation, post-apply verification, and a usable rollback path.
+
+
+## Build 2.10 repair planning boundaries
+
+Re-add recovery and clean-name suggestions are plan-only. No Apply button or write endpoint exists. The planned future Apply phase must use the entity-registry WebSocket API, Lovelace WebSocket API for storage-managed dashboards, atomic YAML/package writes with per-file backups, a verified Supervisor partial backup, a change log, and a tested rollback. The app must not edit .storage files directly or restart Home Assistant automatically.

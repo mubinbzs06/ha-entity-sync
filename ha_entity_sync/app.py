@@ -5,6 +5,8 @@ import os
 import re
 import threading
 import time
+import urllib.request
+import urllib.error
 from datetime import datetime, timezone
 from collections import Counter
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -14,7 +16,7 @@ from urllib.parse import parse_qs, urlparse
 CONFIG = Path("/homeassistant")
 REGISTRY = CONFIG / ".storage" / "core.entity_registry"
 MAX_FILE_BYTES = 5 * 1024 * 1024
-VERSION = "0.2.10"
+VERSION = "0.2.11"
 PORT = 8099
 SCAN_CACHE_SECONDS = 60
 IGNORED_STALE_DOMAINS = {"conversation"}
@@ -237,6 +239,192 @@ def naming_audit(registry):
             })
     return findings
 
+
+def fetch_live_states():
+    """Read live HA states through the Supervisor proxy; never mutate HA."""
+    token = os.environ.get("SUPERVISOR_TOKEN")
+    if not token:
+        return None
+    request = urllib.request.Request(
+        "http://supervisor/core/api/states",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=8) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        return {item.get("entity_id"): item for item in payload if isinstance(item, dict) and item.get("entity_id")}
+    except (OSError, ValueError, urllib.error.URLError):
+        return None
+
+
+def load_device_names():
+    """Read device labels only as corroborating identity metadata."""
+    path = CONFIG / ".storage" / "core.device_registry"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return {
+            item.get("id"): (item.get("name_by_user") or item.get("name") or "")
+            for item in data.get("data", {}).get("devices", [])
+            if isinstance(item, dict) and item.get("id")
+        }
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def line_update_evidence(reference, old_id, new_id):
+    updates = []
+    for match in reference.get("matches", []):
+        before = match.get("full_text") or match.get("text") or ""
+        if old_id in before:
+            updates.append({
+                "file": reference["file"],
+                "line": match.get("line"),
+                "category": reference.get("category"),
+                "before": before,
+                "after": re.sub(r"(?<![A-Za-z0-9_])" + re.escape(old_id) + r"(?![A-Za-z0-9_])", new_id, before),
+            })
+    return updates
+
+
+def detect_readded_pairs(registry, references, live_states, device_names):
+    """Find suffix replacement pairs only when HA state and identity evidence agree."""
+    if live_states is None:
+        return [], "Live Home Assistant state access is unavailable; re-add detection is not confirmed."
+    by_id = {item["entity_id"]: item for item in registry}
+    refs_by_id = {}
+    for reference in references:
+        refs_by_id.setdefault(reference["entity_id"], []).append(reference)
+    plans = []
+    for replacement_id, replacement in by_id.items():
+        match = NUMERIC_SUFFIX_RE.search(replacement_id.split(".", 1)[1])
+        if not match:
+            continue
+        domain, object_id = replacement_id.split(".", 1)
+        old_id = domain + "." + object_id[:match.start()]
+        old = by_id.get(old_id)
+        if not old:
+            continue
+        old_state = live_states.get(old_id)
+        new_state = live_states.get(replacement_id)
+        old_status = old_state.get("state") if old_state else "orphaned"
+        new_status = new_state.get("state") if new_state else None
+        if old_status not in {"unavailable", "unknown", "orphaned"}:
+            continue
+        if new_status in {None, "unavailable", "unknown"}:
+            continue
+
+        old_device = old.get("device_id")
+        new_device = replacement.get("device_id")
+        old_platform = old.get("platform")
+        new_platform = replacement.get("platform")
+        old_config = old.get("config_entry_id")
+        new_config = replacement.get("config_entry_id")
+        old_device_name = device_names.get(old_device, "").strip().casefold()
+        new_device_name = device_names.get(new_device, "").strip().casefold()
+        old_original = (old.get("original_name") or old.get("name") or "").strip().casefold()
+        new_original = (replacement.get("original_name") or replacement.get("name") or "").strip().casefold()
+
+        if old_device and old_device == new_device:
+            confidence, identity_reason = "high", "Same registered device ID"
+        elif old_config and old_config == new_config and old_platform and old_platform == new_platform:
+            confidence, identity_reason = "high", "Same integration and config entry"
+        elif old_platform and old_platform == new_platform and (
+            (old_device_name and old_device_name == new_device_name)
+            or (old_original and old_original == new_original)
+        ):
+            confidence, identity_reason = "medium", "Same integration with matching device/entity name"
+        else:
+            continue
+
+        active_refs = [
+            ref for ref in refs_by_id.get(old_id, [])
+            if ref.get("category") in {"Dashboard", "Active configuration"}
+        ]
+        updates = []
+        for ref in active_refs:
+            updates.extend(line_update_evidence(ref, old_id, old_id))
+        plans.append({
+            "old_entity_id": old_id,
+            "replacement_entity_id": replacement_id,
+            "old_state": old_status,
+            "replacement_state": new_status,
+            "integration": old_platform or new_platform or "Unknown",
+            "device_name": device_names.get(old_device) or device_names.get(new_device) or "",
+            "confidence": confidence,
+            "identity_reason": identity_reason,
+            "active_references": active_refs,
+            "reference_count": sum(ref.get("count", 0) for ref in active_refs),
+            "affected_lines": updates,
+            "proposed_steps": [
+                "Retire the unavailable/orphaned old registry entry after a fresh identity check",
+                f"Rename {replacement_id} to {old_id} through the HA entity-registry API",
+                "Keep existing active references to the original ID; they should resolve to the live entity again",
+            ],
+            "read_only_plan": True,
+        })
+    plans.sort(key=lambda item: (item["confidence"] != "high", item["old_entity_id"]))
+    return plans, "Live states checked. A pair is a candidate plan, not permission to change the registry."
+
+
+def build_clean_name_suggestions(registry, references):
+    """Create exact, collision-aware rename proposals without changing entity IDs."""
+    occupied = {item["entity_id"] for item in registry}
+    refs_by_id = {}
+    for reference in references:
+        refs_by_id.setdefault(reference["entity_id"], []).append(reference)
+    suggestions = []
+    for item in registry:
+        entity_id = item["entity_id"]
+        domain, object_id = entity_id.split(".", 1)
+        words = object_id.split("_")
+        candidate_words = words[:]
+        reasons = []
+        # Remove a duplicated adjacent sequence, preserving meaningful numeric tokens.
+        for width in range(len(candidate_words) // 2, 0, -1):
+            if candidate_words[:width] == candidate_words[width:2 * width]:
+                candidate_words = candidate_words[:width] + candidate_words[2 * width:]
+                reasons.append("Collapsed an immediately repeated name sequence")
+                break
+        suffix_removed = False
+        if candidate_words and candidate_words[-1] in {"2", "3"}:
+            removed_suffix = candidate_words.pop()
+            suffix_removed = True
+            reasons.append(f"Removed trailing HA duplicate suffix _{removed_suffix}; verify it is not intentional")
+        platform_removed = False
+        platform = (item.get("platform") or "").casefold()
+        if platform and len(candidate_words) > 1 and candidate_words[0].casefold() == platform:
+            candidate_words = candidate_words[1:]
+            platform_removed = True
+            reasons.append("Removed a leading integration prefix confirmed by registry metadata")
+        if candidate_words == words:
+            continue
+        proposed = domain + "." + "_".join(candidate_words)
+        if proposed == domain + ".":
+            continue
+        collision = proposed in occupied and proposed != entity_id
+        repeated_only = any("repeated name sequence" in reason for reason in reasons) and not suffix_removed and not platform_removed
+        confidence = "low" if collision else "high" if repeated_only else "medium"
+        refs = [ref for ref in refs_by_id.get(entity_id, []) if ref.get("category") in {"Dashboard", "Active configuration"}]
+        updates = []
+        for reference in refs:
+            updates.extend(line_update_evidence(reference, entity_id, proposed))
+        suggestions.append({
+            "entity_id": entity_id,
+            "suggested_entity_id": proposed,
+            "collision": collision,
+            "confidence": confidence,
+            "reason": "; ".join(reasons),
+            "references": refs,
+            "affected_lines": updates,
+            "proposed_steps": [
+                f"Rename the registered entity from {entity_id} to {proposed}",
+                "Update only the listed active dashboard/YAML references",
+                "Validate the new ID is still collision-free immediately before any future Apply",
+            ],
+            "read_only_plan": True,
+        })
+    return suggestions
+
 def scan():
     started = time.monotonic()
     if not REGISTRY.exists():
@@ -277,7 +465,12 @@ def scan():
                         "count": 0, "lines": [], "matches": []
                     })
                     entry["count"] += 1
-                    if len(entry["matches"]) < 30:
+                    if category in {"Dashboard", "Active configuration"}:
+                        # Repair plans must retain every active source line, not just a preview sample.
+                        if line_no not in entry["lines"]:
+                            entry["lines"].append(line_no)
+                            entry["matches"].append(evidence)
+                    elif len(entry["matches"]) < 30 and line_no not in entry["lines"]:
                         entry["lines"].append(line_no)
                         entry["matches"].append(evidence)
                 elif entity_id.split(".", 1)[0] not in IGNORED_STALE_DOMAINS and entity_id.split(".", 1)[0] in known_domains and (
@@ -320,6 +513,8 @@ def scan():
         usage_by_entity.setdefault(reference["entity_id"], []).append(reference)
     for finding in naming_findings:
         finding["usage"] = usage_by_entity.get(finding["entity_id"], [])
+    readded_pairs, readded_note = detect_readded_pairs(registry, results, fetch_live_states(), load_device_names())
+    clean_name_suggestions = build_clean_name_suggestions(registry, results)
     referenced_entities = {item["entity_id"] for item in results}
     active_entities = {item["entity_id"] for item in results if item["category"] in {"Active configuration", "Dashboard"}}
     review_entities = {item["entity_id"] for item in results if item["category"] == "Needs review"}
@@ -359,6 +554,11 @@ def scan():
         "potentially_stale_hits": sum(item["count"] for item in stale),
         "naming_findings": naming_findings,
         "naming_findings_count": len(naming_findings),
+        "readded_pairs": readded_pairs,
+        "readded_pairs_count": len(readded_pairs),
+        "readded_detection_note": readded_note,
+        "clean_name_suggestions": clean_name_suggestions,
+        "clean_name_suggestions_count": len(clean_name_suggestions),
         "audit_note": "Potentially stale entries are candidates for review, not confirmed broken references."
     }
     print(
