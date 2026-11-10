@@ -364,6 +364,19 @@ def evaluate_replacement_identity(old, replacement):
     }
 
 
+def enrich_dashboard_references(references):
+    """Attach safe live-preview routes to scanned dashboard reference groups."""
+    routes = dashboard_route_index()
+    enriched = []
+    for reference in references:
+        item = dict(reference)
+        if item.get("category") == "Dashboard":
+            item["dashboard_url"] = routes.get(item.get("file"))
+            item["dashboard_preview_available"] = bool(item["dashboard_url"])
+        enriched.append(item)
+    return enriched
+
+
 def dashboard_route_index():
     """Map Lovelace storage files to their Home Assistant dashboard URL paths."""
     routes = {".storage/lovelace": "/lovelace"}
@@ -617,6 +630,7 @@ def scan():
                         entry["matches"].append(evidence)
 
     results = sorted(references.values(), key=lambda x: (x["entity_id"], x["file"]))
+    results = enrich_dashboard_references(results)
     candidate_categories = {}
     for item in candidates.values():
         candidate_categories.setdefault(item["entity_id"], set()).add(item["category"])
