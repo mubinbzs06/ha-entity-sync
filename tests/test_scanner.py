@@ -125,5 +125,23 @@ class ScannerTests(unittest.TestCase):
         self.assertNotIn("automations_backup.yaml", included)
 
 
+    def test_file_viewer_reads_only_scanner_approved_files(self):
+        (self.root / "automations.yaml").write_text(
+            "first line\nentity_id: sensor.known\n", encoding="utf-8"
+        )
+        (self.root / "backups").mkdir()
+        (self.root / "backups" / "old.yaml").write_text(
+            "secret backup", encoding="utf-8"
+        )
+        result = app.read_scoped_file("automations.yaml")
+        self.assertEqual(result["path"], "automations.yaml")
+        self.assertIn("entity_id: sensor.known", result["content"])
+        with self.assertRaises(ValueError):
+            app.read_scoped_file("../outside.yaml")
+        with self.assertRaises(FileNotFoundError):
+            app.read_scoped_file("backups/old.yaml")
+
+
+
 if __name__ == "__main__":
     unittest.main()
