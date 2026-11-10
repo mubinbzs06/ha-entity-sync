@@ -1,25 +1,25 @@
 # HA Entity Sync
 
-A local Home Assistant OS add-on for **read-only entity reference auditing**.
+A local Home Assistant OS app for **read-only entity reference auditing**.
 
 ## Current status
 
-This is the first development scaffold. It does not rename entities, edit Home Assistant files, or call services. The first milestone is a read-only inventory and reference report.
+Version 0.1.0 is the first scanner milestone. It reads the entity registry and searches selected configuration and storage files for references. It does not rename entities, edit Home Assistant files, or call services.
 
 ## Install (development)
 
-1. In Home Assistant, open **Settings → Add-ons → Add-on Store → ⋮ → Repositories**.
-2. Add this repository URL: https://github.com/mubinbzs06/ha-entity-sync
-3. Find **HA Entity Sync**, install it, and start it.
-4. Open its Web UI on port 8099.
+1. In Home Assistant, open **Settings → Apps → App Store → ⋮ → Repositories** (older releases call these Add-ons).
+2. Add: https://github.com/mubinbzs06/ha-entity-sync
+3. Find **HA Entity Sync**, install, and start it.
+4. Open **HA Entity Sync** from the Home Assistant sidebar. It uses authenticated Home Assistant Ingress; no LAN port is exposed.
 
-The add-on mounts `/config` read-only. It scans selected Home Assistant configuration and storage files while excluding secrets, databases, backups, logs, and Git metadata.
+The app mounts the Home Assistant configuration at `/homeassistant` **read-only**. It excludes secrets, databases, backups, logs, and Git metadata.
 
 ## Safety
 
-- Read-only filesystem mount.
+- Home Assistant configuration mount is read-only.
 - No entity rename or repair actions.
-- No configuration writes.
+- No configuration writes or service calls.
 - No cloud service or telemetry.
 - Reports are generated on demand.
 
