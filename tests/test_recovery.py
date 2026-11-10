@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ha_entity_sync"))
 import recovery
 
 
-def make_backup_archive(entity_ids, registry_entries=None):
+def make_backup_archive(entity_ids, registry_entries=None, registry_path="./data/.storage/core.entity_registry"):
     registry_entries = registry_entries or {}
     registry = {
         "data": {
@@ -24,7 +24,7 @@ def make_backup_archive(entity_ids, registry_entries=None):
     inner = io.BytesIO()
     with tarfile.open(fileobj=inner, mode="w:gz") as archive:
         raw = json.dumps(registry).encode()
-        info = tarfile.TarInfo("./.storage/core.entity_registry")
+        info = tarfile.TarInfo(registry_path)
         info.size = len(raw)
         archive.addfile(info, io.BytesIO(raw))
     outer = io.BytesIO()
@@ -53,6 +53,13 @@ class RecoveryTests(unittest.TestCase):
 
     def test_backup_archive_verifies_nested_entity_registry(self):
         archive = make_backup_archive([self.old, self.new])
+        self.assertTrue(recovery.verify_backup_archive(archive, [self.old, self.new]))
+
+    def test_backup_archive_accepts_legacy_root_registry_path(self):
+        archive = make_backup_archive(
+            [self.old, self.new],
+            registry_path="./.storage/core.entity_registry",
+        )
         self.assertTrue(recovery.verify_backup_archive(archive, [self.old, self.new]))
 
     def test_backup_archive_rejects_missing_registry_entry(self):
