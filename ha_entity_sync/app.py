@@ -357,7 +357,8 @@ def line_update_evidence(reference, old_id, new_id):
                 "category": reference.get("category"),
                 "before": before,
                 "after": re.sub(r"(?<![A-Za-z0-9_])" + re.escape(old_id) + r"(?![A-Za-z0-9_])", new_id, before),
-            })    return updates
+            })
+    return updates
 
 def evaluate_replacement_identity(old, replacement):
     """Return transparent identity evidence; names never establish identity."""
