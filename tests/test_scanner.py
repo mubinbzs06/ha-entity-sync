@@ -612,3 +612,17 @@ class DashboardRouteTests(unittest.TestCase):
         )
         self.assertFalse(result["eligible"])
         self.assertTrue(result["identity_conflicts"])
+
+    def test_scanned_dashboard_references_include_live_preview_route(self):
+        payload = {"data": {"dashboards": [
+            {"id": "dash-123", "url_path": "energy-overview"}
+        ]}}
+        (self.root / ".storage" / "lovelace_dashboards").write_text(
+            json.dumps(payload), encoding="utf-8"
+        )
+        references = app.enrich_dashboard_references([
+            {"entity_id": "sensor.example", "file": ".storage/lovelace.dash-123",
+             "category": "Dashboard", "count": 1}
+        ])
+        self.assertEqual(references[0]["dashboard_url"], "/energy-overview")
+        self.assertTrue(references[0]["dashboard_preview_available"])
