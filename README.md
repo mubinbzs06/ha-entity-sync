@@ -4,7 +4,7 @@ A local Home Assistant OS app for **read-only entity reference auditing**.
 
 ## Current build
 
-**Build 2.11 · Version 0.2.12** scans user-maintained Home Assistant configuration, Lovelace dashboards, and a small allowlist of historical storage records.
+**Build 2.12 · Version 0.2.13** scans user-maintained Home Assistant configuration, Lovelace dashboards, and a small allowlist of historical storage records.
 
 It excludes unrelated Home Assistant internals, integration/add-on implementation folders, backups, archives, databases, logs, secrets, and runtime data.
 
