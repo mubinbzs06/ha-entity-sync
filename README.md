@@ -1,10 +1,10 @@
 # HA Entity Sync
 
-A local Home Assistant OS app for **read-only entity reference auditing**.
+A local Home Assistant OS app for entity reference auditing and explicitly approved re-add recovery.
 
 ## Current build
 
-**Build 2.12 · Version 0.2.13** scans user-maintained Home Assistant configuration, Lovelace dashboards, and a small allowlist of historical storage records.
+**Build 2.13 · Version 0.2.14** scans user-maintained Home Assistant configuration, Lovelace dashboards, and a small allowlist of historical storage records.
 
 It excludes unrelated Home Assistant internals, integration/add-on implementation folders, backups, archives, databases, logs, secrets, and runtime data.
 
@@ -45,7 +45,7 @@ Excluded:
 3. Find **HA Entity Sync**, install or update, and start it.
 4. Open it from the Home Assistant sidebar.
 
-The app mounts Home Assistant configuration at `/homeassistant` **read-only**. It does not rename entities, edit configuration, call services, or restart Home Assistant.
+The app mounts Home Assistant configuration at `/homeassistant` **read-only**. Scanning never changes Home Assistant. A separate, explicitly approved recovery action uses the Home Assistant entity-registry API; it does not edit dashboards/YAML, call services, or restart Home Assistant.
 
 ## Limitations and safety
 
@@ -53,7 +53,7 @@ The app mounts Home Assistant configuration at `/homeassistant` **read-only**. I
 - Custom domains and unusual reference syntax may be missed.
 - Dependencies held only in integrations, databases, or remote systems are outside this file scan.
 - The viewer only serves files approved by the scanner's safe file scope.
-- Persistent entity database, scan history, and the backup-gated Apply workflow remain future work.
+- Entity history and recovery audit records are stored in the app's private data mount. Registry recovery is limited to the re-add scenario; general entity renaming and dashboard/YAML repair remain future work.
 
 **Golden rule:** no change without a specific user-approved plan, a verified Supervisor backup, recoverable per-file backups, pre-apply validation, post-apply verification, and a usable rollback path.
 
@@ -67,14 +67,18 @@ The app mounts Home Assistant configuration at `/homeassistant` **read-only**. I
 - Stale candidates with active/dashboard evidence rank above historical-only candidates. The built-in `conversation` domain is excluded from stale-candidate detection to reduce false positives.
 
 
-## Read-only repair planning (0.2.12)
+## Re-add recovery (0.2.14)
 
 - **Re-add recovery candidates** compare unavailable/orphaned original IDs with live suffixed IDs such as `sensor.foo_2`. A candidate is shown only when live state and strong registry lineage evidence agree: the same integration `unique_id`, device ID, or config-entry ID plus platform. Names alone are never treated as identity.
 - Each re-add plan lists the original and replacement IDs, their states, identity evidence, and every active dashboard/YAML reference to the original ID. Those existing references are expected to resolve again after a future approved registry repair; historical restore-state and trace records are not included in repair plans.
 - **Clean-name suggestions** prioritize collapsing an immediately repeated adjacent name sequence. Trailing `_2`/`_3` removal is a low-confidence advisory only. Integration-prefix removal is disabled to preserve identity. Duplicate targets within a batch and IDs already in the registry are marked as collisions.
-- Collision proposals are blocked from being considered safe. No entity IDs, registry entries, dashboards, YAML files, or packages are changed.
-- The add-on requests Home Assistant API access only to read live entity states. The configuration mount remains read-only; .storage is never edited.
-- Applying a plan, obtaining Supervisor backups, registry updates, Lovelace API updates, YAML writes, and rollback are not implemented in this build. They remain a separate future phase.
+- A **Recover this pair** action requires a separate confirmation for each pair. Immediately before applying, the app rechecks both registry entries, live states, numeric-suffix relationship, disabled status, and strong identity lineage.
+- Before changing the registry, the app creates a Home Assistant-only Supervisor partial backup (excluding the recorder database), downloads it, and verifies the archived `.storage/core.entity_registry` contains both entries. If backup creation or verification fails, no registry change is made.
+- The app moves the unavailable original entry to a generated temporary ID, then renames the live replacement to the original ID through Home Assistant's authenticated WebSocket entity-registry API. The old entry remains quarantined as a rollback anchor.
+- The app verifies that the original ID now belongs to the replacement entry and has a live state. It does not edit dashboard/YAML references, remove the quarantined entry, call services, or restart Home Assistant.
+- **Recovery history and rollback** retain the backup slug and temporary ID. Undo creates and verifies a second backup before reversing the registry changes.
+- If an operation fails, the app attempts a compensating rollback. If it cannot verify rollback, it records the verified backup slug for manual restore through the Supervisor backup manager.
+- The Home Assistant config mount remains read-only. The add-on uses `homeassistant_api: true` for the entity-registry WebSocket API and the narrow `hassio_role: backup` permission for Supervisor backup endpoints.
 
 
 ## Runtime safeguards (0.2.12)
@@ -84,4 +88,4 @@ The app mounts Home Assistant configuration at `/homeassistant` **read-only**. I
 - The add-on starts its HTTP listener before scanning. Scans begin when the panel is opened, avoiding a long scan delaying service startup.
 - `/health` reports whether the entity registry is available. Failed scans return HTTP 503 with a diagnostic response.
 - The web panel is intended to be opened through Home Assistant Ingress, not exposed directly to the LAN or Internet.
-- The application mounts HA configuration read-only and performs only GET requests to the Home Assistant states API. No service calls, entity registry writes, or configuration writes are implemented.
+- The application mounts HA configuration read-only. Scans use GET requests; approved recovery and rollback use only the entity-registry WebSocket commands. No direct .storage writes, dashboard/YAML edits, service calls, or automatic restarts are implemented.
