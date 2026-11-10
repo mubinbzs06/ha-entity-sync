@@ -321,9 +321,11 @@ def scan():
     for finding in naming_findings:
         finding["usage"] = usage_by_entity.get(finding["entity_id"], [])
     referenced_entities = {item["entity_id"] for item in results}
-    active_entities = {item["entity_id"] for item in results if item["category"] != "Historical"}
+    active_entities = {item["entity_id"] for item in results if item["category"] in {"Active configuration", "Dashboard"}}
+    review_entities = {item["entity_id"] for item in results if item["category"] == "Needs review"}
     historical_entities = {item["entity_id"] for item in results if item["category"] == "Historical"}
-    historical_only_entities = historical_entities - active_entities
+    historical_only_entities = historical_entities - active_entities - review_entities
+    review_only_entities = review_entities - active_entities - historical_entities
     active_reference_count = len(active_entities)
     unreferenced_count = len(set(entity_ids) - referenced_entities)
     reference_record_count = len(results)
@@ -344,6 +346,7 @@ def scan():
         "entities_with_any_references": len(referenced_entities),
         "entities_with_active_references": active_reference_count,
         "entities_with_historical_only_references": len(historical_only_entities),
+        "entities_with_needs_review_only_references": len(review_only_entities),
         "unreferenced_entities": unreferenced_count,
         "reference_records": reference_record_count,
         "reference_hits": reference_hit_count,
