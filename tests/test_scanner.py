@@ -519,6 +519,35 @@ class ScannerTests(unittest.TestCase):
 if __name__ == "__main__":
     unittest.main()
 
+    def test_dashboard_health_classifies_available_unavailable_unknown_and_missing(self):
+        references = [
+            {"entity_id": "sensor.ready", "file": ".storage/lovelace", "category": "Dashboard", "count": 1, "lines": [1], "matches": []},
+            {"entity_id": "sensor.down", "file": ".storage/lovelace", "category": "Dashboard", "count": 1, "lines": [2], "matches": []},
+            {"entity_id": "sensor.uncertain", "file": ".storage/lovelace", "category": "Dashboard", "count": 1, "lines": [3], "matches": []},
+            {"entity_id": "sensor.retired_dashboard_id", "file": ".storage/lovelace", "category": "Dashboard", "count": 1, "lines": [4], "matches": []},
+        ]
+        registry = [{"entity_id": "sensor.ready"}, {"entity_id": "sensor.down"}, {"entity_id": "sensor.uncertain"}]
+        live = {"sensor.ready": {"state": "on"}, "sensor.down": {"state": "unavailable"}, "sensor.uncertain": {"state": "unknown"}}
+        result = app.build_dashboard_health(references, registry, live)
+        statuses = {item["entity_id"]: item["health_status"] for item in result}
+        self.assertEqual(statuses["sensor.ready"], "available")
+        self.assertEqual(statuses["sensor.down"], "unavailable")
+        self.assertEqual(statuses["sensor.uncertain"], "unknown")
+        self.assertEqual(statuses["sensor.retired_dashboard_id"], "missing")
+
+    def test_dashboard_health_does_not_claim_missing_when_live_api_unavailable(self):
+        result = app.build_dashboard_health([{"entity_id": "sensor.old", "file": ".storage/lovelace", "category": "Dashboard"}], [], None)
+        self.assertEqual(result[0]["health_status"], "not_checked")
+
+    def test_dashboard_scan_surfaces_unregistered_id_even_without_entity_context_key(self):
+        dashboard = self.root / ".storage" / "lovelace.dashboard_test"
+        dashboard.write_text('{"data":{"config":{"custom_label":"sensor.dashboard_missing"}}}', encoding="utf-8")
+        report = app.scan()
+        stale = [item for item in report["potentially_stale"] if item["entity_id"] == "sensor.dashboard_missing"]
+        self.assertTrue(stale)
+        health = [item for item in report["dashboard_health"] if item["entity_id"] == "sensor.dashboard_missing"]
+        self.assertTrue(health)
+        self.assertEqual(health[0]["registry_status"], "not_registered")
 
 class ReplacementIdentityEvidenceTests(unittest.TestCase):
     def test_evaluator_exposes_strong_match_and_missing_metadata(self):
