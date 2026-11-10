@@ -91,7 +91,7 @@ function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&l
 function evidenceHtml(r){
  const matches=r.matches||[];
  return matches.map(m=>'<div class="evidence"><div class="evidence-head"><span class="path">'+esc(r.file)+'</span><span class="line">Line '+esc(m.line)+'</span><button class="copy" type="button" data-open-file="'+esc(r.file)+'" data-line="'+esc(m.line)+'">Open file ↗</button></div><code class="snippet">'+esc(m.text||'')+'</code></div>').join('') ||
- '<div class="evidence"><div class="path">'+esc(r.file)+'</div><div class="line">Line(s): '+esc((r.lines||[]).join(', '))+'</div></div>';
+ '<div class="evidence"><div class="evidence-head"><span class="path">'+esc(r.file)+'</span><button class="copy" type="button" data-open-file="'+esc(r.file)+'" data-line="'+esc((r.lines||[])[0]||1)+'">Open file ↗</button></div><div class="line">Line(s): '+esc((r.lines||[]).join(', '))+'</div></div>';
 }
 function groupedResults(){
  const q=$('filter').value.trim().toLowerCase();
@@ -220,7 +220,7 @@ function closeFileViewer(){
   returnToEntity.open=true;
   const group=returnToEntity.closest('.group');
   if(group)group.open=true;
-  returnToEntity.scrollIntoView({behavior:'instant',block:'center'});
+  returnToEntity.scrollIntoView({behavior:'auto',block:'center'});
  }
  returnToEntity=null;
 }
@@ -229,7 +229,7 @@ document.addEventListener('click',e=>{
  const jump=e.target.closest('[data-jump-letter]');
  if(jump){e.preventDefault();const heading=$('naming-letter-'+jump.getAttribute('data-jump-letter'));if(heading)heading.scrollIntoView({behavior:'smooth',block:'start'});return;}
  const file=e.target.closest('[data-open-file]');
- if(file){openFile(file.getAttribute('data-open-file'),file.getAttribute('data-line'));return;}
+ if(file){openFile(file.getAttribute('data-open-file'),file.getAttribute('data-line'),file.closest('.entity, .candidate'));return;}
 });
 </script>
 </body>
