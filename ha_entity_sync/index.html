@@ -190,8 +190,8 @@ window.addEventListener('scroll',()=>{
 $('expandAll').onclick=()=>document.querySelectorAll('.group,.candidate').forEach(x=>x.open=true);
 $('collapseAll').onclick=()=>document.querySelectorAll('.group,.entity,.candidate').forEach(x=>x.open=false);
 let returnToEntity=null;
-async function openFile(path,line){
- returnToEntity=document.querySelector('.entity[open], .candidate[open]');
+async function openFile(path,line,owner){
+ returnToEntity=owner;
  const base=window.location.pathname.endsWith('/')?window.location.pathname:window.location.pathname+'/';
  $('fileViewer').classList.add('visible');
  $('viewerPath').textContent=path;
