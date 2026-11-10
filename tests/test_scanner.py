@@ -284,5 +284,77 @@ class ScannerTests(unittest.TestCase):
 
 
 
+    def test_readded_pair_requires_live_replacement_and_identity_match(self):
+        registry = [
+            {"entity_id": "sensor.laundry_temperature", "device_id": "device-a", "platform": "mqtt"},
+            {"entity_id": "sensor.laundry_temperature_2", "device_id": "device-a", "platform": "mqtt"},
+        ]
+        references = [{
+            "entity_id": "sensor.laundry_temperature", "file": "automations.yaml",
+            "category": "Active configuration", "count": 2, "lines": [4],
+            "matches": [{"line": 4, "full_text": "entity_id: sensor.laundry_temperature"}],
+        }]
+        live = {
+            "sensor.laundry_temperature": {"entity_id": "sensor.laundry_temperature", "state": "unavailable"},
+            "sensor.laundry_temperature_2": {"entity_id": "sensor.laundry_temperature_2", "state": "21.5"},
+        }
+        plans, note = app.detect_readded_pairs(registry, references, live, {})
+        self.assertEqual(len(plans), 1)
+        self.assertEqual(plans[0]["old_entity_id"], "sensor.laundry_temperature")
+        self.assertEqual(plans[0]["replacement_entity_id"], "sensor.laundry_temperature_2")
+        self.assertEqual(plans[0]["confidence"], "high")
+        self.assertEqual(plans[0]["reference_count"], 2)
+        self.assertEqual(plans[0]["active_references"][0]["file"], "automations.yaml")
+        self.assertTrue(plans[0]["read_only_plan"])
+
+    def test_readded_pair_does_not_guess_without_live_state_or_identity(self):
+        registry = [
+            {"entity_id": "sensor.laundry_temperature", "device_id": "device-a", "platform": "mqtt"},
+            {"entity_id": "sensor.laundry_temperature_2", "device_id": "device-b", "platform": "zha"},
+        ]
+        plans, note = app.detect_readded_pairs(registry, [], None, {})
+        self.assertEqual(plans, [])
+        plans, note = app.detect_readded_pairs(
+            registry, [], {
+                "sensor.laundry_temperature": {"state": "unavailable"},
+                "sensor.laundry_temperature_2": {"state": "21.5"},
+            }, {}
+        )
+        self.assertEqual(plans, [])
+
+    def test_readded_pair_detects_orphaned_old_state(self):
+        registry = [
+            {"entity_id": "sensor.laundry_temperature", "config_entry_id": "entry-a", "platform": "mqtt"},
+            {"entity_id": "sensor.laundry_temperature_3", "config_entry_id": "entry-a", "platform": "mqtt"},
+        ]
+        plans, _ = app.detect_readded_pairs(
+            registry, [], {"sensor.laundry_temperature_3": {"state": "22"}}, {}
+        )
+        self.assertEqual(len(plans), 1)
+        self.assertEqual(plans[0]["old_state"], "orphaned")
+        self.assertEqual(plans[0]["confidence"], "high")
+
+    def test_clean_name_plan_shows_collision_and_exact_line_diff(self):
+        registry = [
+            {"entity_id": "sensor.bathroom_1_bathroom_1_temperature"},
+            {"entity_id": "sensor.bathroom_1_temperature"},
+        ]
+        references = [{
+            "entity_id": "sensor.bathroom_1_bathroom_1_temperature",
+            "file": "packages/bathroom.yaml", "category": "Active configuration",
+            "count": 1, "matches": [{
+                "line": 12,
+                "full_text": "entity_id: sensor.bathroom_1_bathroom_1_temperature",
+            }],
+        }]
+        suggestions = app.build_clean_name_suggestions(registry, references)
+        plan = next(item for item in suggestions if item["entity_id"] == "sensor.bathroom_1_bathroom_1_temperature")
+        self.assertEqual(plan["suggested_entity_id"], "sensor.bathroom_1_temperature")
+        self.assertTrue(plan["collision"])
+        self.assertEqual(plan["affected_lines"][0]["file"], "packages/bathroom.yaml")
+        self.assertEqual(plan["affected_lines"][0]["line"], 12)
+        self.assertIn("sensor.bathroom_1_temperature", plan["affected_lines"][0]["after"])
+
+
 if __name__ == "__main__":
     unittest.main()
