@@ -16,7 +16,8 @@ SKIP_DIRS = {
 }
 SKIP_NAMES = {
     "secrets.yaml", "secrets.yml", "home-assistant_v2.db",
-    "home-assistant_v2.db-wal", "home-assistant_v2.db-shm"
+    "home-assistant_v2.db-wal", "home-assistant_v2.db-shm",
+    "core.config_entries"
 }
 ALLOWED_SUFFIXES = {
     ".yaml", ".yml", ".json", ".json5", ".jinja", ".jinja2",
@@ -43,7 +44,7 @@ def candidate_files():
                 continue
             path = Path(root) / name
             rel = path.relative_to(CONFIG)
-            # Scan Home Assistant's extensionless .storage JSON files too.
+            # Include extensionless Home Assistant storage JSON, but not secrets/auth.
             if path.suffix.lower() not in ALLOWED_SUFFIXES and rel.parts[0] != ".storage":
                 continue
             if path == REGISTRY:
@@ -57,40 +58,38 @@ def candidate_files():
 
 def scan():
     if not REGISTRY.exists():
-        return {"ok": False, "error": "Entity registry not found at .storage/core.entity_registry", "entities": [], "summary": {}}
+        return {"ok": False, "error": "Entity registry not found at .storage/core.entity_registry"}
     try:
         entity_ids = load_entities()
     except Exception as err:
-        return {"ok": False, "error": f"Could not read entity registry: {type(err).__name__}: {err}", "entities": [], "summary": {}}
+        return {"ok": False, "error": f"Could not read entity registry: {type(err).__name__}: {err}"}
 
+    known = set(entity_ids)
     results = []
     scanned = 0
     for path in candidate_files():
         try:
-            content = path.read_text(encoding="utf-8")
+            lines = path.read_text(encoding="utf-8").splitlines()
         except (OSError, UnicodeError):
             continue
         scanned += 1
         rel = str(path.relative_to(CONFIG))
-        lines = content.splitlines()
-        for entity_id in entity_ids:
-            # Match complete entity IDs only, not substrings.
-            pattern = re.compile(r"(?<![A-Za-z0-9_])" + re.escape(entity_id) + r"(?![A-Za-z0-9_])")
-            matches = []
-            for line_no, line in enumerate(lines, 1):
-                if pattern.search(line):
-                    matches.append({"line": line_no, "preview": line.strip()[:220]})
-            if matches:
-                results.append({
-                    "entity_id": entity_id,
-                    "file": rel,
-                    "count": len(matches),
-                    "matches": matches[:30]
-                })
+        found = {}
+        for line_no, line in enumerate(lines, 1):
+            for match in ENTITY_RE.finditer(line):
+                entity_id = match.group(0)
+                if entity_id in known:
+                    found.setdefault(entity_id, []).append(line_no)
+        for entity_id, line_numbers in found.items():
+            results.append({
+                "entity_id": entity_id,
+                "file": rel,
+                "count": len(line_numbers),
+                "lines": line_numbers[:30]
+            })
+
     results.sort(key=lambda item: (item["entity_id"], item["file"]))
-    by_entity = {}
-    for item in results:
-        by_entity[item["entity_id"]] = by_entity.get(item["entity_id"], 0) + item["count"]
+    by_entity = {item["entity_id"] for item in results}
     return {
         "ok": True,
         "read_only": True,
@@ -99,7 +98,6 @@ def scan():
         "entities_with_references": len(by_entity),
         "reference_hits": sum(item["count"] for item in results),
         "results": results,
-        "entity_ids": entity_ids,
     }
 
 
