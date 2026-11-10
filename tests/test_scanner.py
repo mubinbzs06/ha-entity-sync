@@ -1,3 +1,5 @@
+import contextlib
+import io
 import json
 import sys
 import tempfile
@@ -376,6 +378,102 @@ class ScannerTests(unittest.TestCase):
         self.assertEqual(reference["count"], 45)
         self.assertEqual(len(reference["matches"]), 45)
         self.assertEqual(reference["lines"], list(range(1, 46)))
+
+
+    def test_readded_pair_rejects_same_names_without_shared_lineage(self):
+        registry = [
+            {"entity_id": "light.bathroom", "device_id": "bathroom-1", "platform": "zha",
+             "config_entry_id": "entry-a", "original_name": "Bathroom"},
+            {"entity_id": "light.bathroom_2", "device_id": "bathroom-2", "platform": "zha",
+             "config_entry_id": "entry-b", "original_name": "Bathroom"},
+        ]
+        live = {
+            "light.bathroom": {"state": "unavailable"},
+            "light.bathroom_2": {"state": "on"},
+        }
+        plans, _ = app.detect_readded_pairs(registry, [], live, {})
+        self.assertEqual(plans, [])
+
+    def test_readded_pair_accepts_same_unique_id_lineage(self):
+        registry = [
+            {"entity_id": "sensor.device_temp", "platform": "mqtt", "unique_id": "same-unique"},
+            {"entity_id": "sensor.device_temp_2", "platform": "mqtt", "unique_id": "same-unique"},
+        ]
+        live = {
+            "sensor.device_temp": {"state": "unavailable"},
+            "sensor.device_temp_2": {"state": "22"},
+        }
+        plans, _ = app.detect_readded_pairs(registry, [], live, {})
+        self.assertEqual(len(plans), 1)
+        self.assertEqual(plans[0]["identity_reason"], "Same integration unique_id")
+
+    def test_prefix_removal_is_not_suggested_and_repeated_words_remain_primary(self):
+        registry = [
+            {"entity_id": "sensor.sun_next_dawn", "platform": "sun"},
+            {"entity_id": "sensor.wiz_rgbw_tunable_light", "platform": "wiz"},
+            {"entity_id": "sensor.mommy_mommy_heater_heating"},
+        ]
+        plans = app.build_clean_name_suggestions(registry, [])
+        by_id = {item["entity_id"]: item for item in plans}
+        self.assertNotIn("sensor.sun_next_dawn", by_id)
+        self.assertNotIn("sensor.wiz_rgbw_tunable_light", by_id)
+        self.assertEqual(
+            by_id["sensor.mommy_mommy_heater_heating"]["suggested_entity_id"],
+            "sensor.mommy_heater_heating",
+        )
+        self.assertEqual(by_id["sensor.mommy_mommy_heater_heating"]["confidence"], "high")
+
+    def test_duplicate_suggested_targets_in_same_batch_are_flagged(self):
+        registry = [
+            {"entity_id": "sensor.mommy_mommy_heater_heating"},
+            {"entity_id": "sensor.mommy_mommy_heater_heating_2"},
+        ]
+        plans = app.build_clean_name_suggestions(registry, [])
+        self.assertEqual(len(plans), 2)
+        self.assertEqual(
+            {item["suggested_entity_id"] for item in plans},
+            {"sensor.mommy_heater_heating"},
+        )
+        self.assertEqual(sum(item["collision"] for item in plans), 1)
+        self.assertEqual(
+            sum("same target ID" in item["reason"] for item in plans),
+            1,
+        )
+
+    def test_live_state_api_logs_http_status_and_uses_supervisor_bearer_token(self):
+        class FakeResponse:
+            status = 200
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def read(self):
+                return b'[{"entity_id":"sensor.test","state":"on"}]'
+            def getcode(self):
+                return self.status
+
+        output = io.StringIO()
+        with patch.dict("os.environ", {"SUPERVISOR_TOKEN": "test-token"}), \
+             patch.object(app.urllib.request, "urlopen", return_value=FakeResponse()) as urlopen, \
+             contextlib.redirect_stdout(output):
+            states = app.fetch_live_states()
+        self.assertEqual(states["sensor.test"]["state"], "on")
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, "http://supervisor/core/api/states")
+        self.assertEqual(request.get_header("Authorization"), "Bearer test-token")
+        self.assertIn("HTTP 200", output.getvalue())
+
+    def test_live_state_api_logs_http_error_status(self):
+        error = app.urllib.error.HTTPError(
+            "http://supervisor/core/api/states", 403, "Forbidden", {}, None
+        )
+        output = io.StringIO()
+        with patch.dict("os.environ", {"SUPERVISOR_TOKEN": "test-token"}), \
+             patch.object(app.urllib.request, "urlopen", side_effect=error), \
+             contextlib.redirect_stdout(output):
+            states = app.fetch_live_states()
+        self.assertIsNone(states)
+        self.assertIn("HTTP 403", output.getvalue())
 
 
 if __name__ == "__main__":
