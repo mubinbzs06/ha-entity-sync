@@ -1,5 +1,5 @@
 name: HA Entity Sync
-version: "0.2.12"
+version: "0.2.13"
 slug: ha_entity_sync
 description: Read-only entity audit with re-add detection and repair planning
 url: https://github.com/mubinbzs06/ha-entity-sync
