@@ -70,6 +70,14 @@ main{padding:28px clamp(16px,3vw,42px);min-width:0}.top{display:flex;align-items
 .usage-category.needs-review{background:#3b3019;color:#f0ce83;border-color:#81652e}
 .usage-category.historical{background:#402326;color:#ffaaaa;border-color:#87464b}
 .code-line .entity-match{padding:0 2px}
+
+/* Build 2.9: optional, unique entity-name suggestions */
+.name-suggestions{margin:10px 0;padding:10px;border:1px solid #66552c;border-radius:9px;background:#211d13}
+.name-suggestions-title{font-size:12px;font-weight:800;color:#f0d99b;margin-bottom:5px}
+.name-suggestion{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-top:1px solid #403720}
+.name-suggestion code{font:12px ui-monospace,SFMono-Regular,Consolas,monospace;color:#f3e6c3;overflow-wrap:anywhere}
+.name-suggestion button{flex:none;border:1px solid #806b37;background:#302819;color:#f0d99b;border-radius:6px;padding:4px 8px;font-size:11px}
+.name-suggestions-note{font-size:11px;color:#c7b98e;margin-top:5px}
 </style>
 </head>
 <body>
@@ -204,7 +212,7 @@ function renderNaming(){
    const usage=x.usage||[];
    const active=usage.filter(r=>r.category!=='Historical');
    const historical=usage.filter(r=>r.category==='Historical');
-   return '<div class="finding"><div class="finding-head"><span class="finding-title">'+esc(x.entity_id)+'</span><span class="count">'+x.issues.length+' finding(s)</span></div>'+(x.name?'<p>Friendly name: '+esc(x.name)+'</p>':'')+'<p>Entity source: '+(x.source?'<b>'+esc(x.source)+'</b>':'Not recorded in the entity registry')+'</p>'+x.issues.map(i=>'<p><b>'+esc(i.type)+':</b> '+esc(i.detail)+(i.matching_base?' Matching base entity: '+esc(i.matching_base):'')+'</p>').join('')+(active.length||historical.length?usageSection('Active usage',active,x.entity_id)+usageSection('Historical usage',historical,x.entity_id):'<p class="line">No references found in the current scan scope.</p>')+'</div>';
+   return '<div class="finding"><div class="finding-head"><span class="finding-title">'+esc(x.entity_id)+'</span><span class="count">'+x.issues.length+' finding(s)</span></div>'+(x.name?'<p>Friendly name: '+esc(x.name)+'</p>':'')+'<p>Entity source: '+(x.source?'<b>'+esc(x.source)+'</b>':'Not recorded in the entity registry')+'</p>'+x.issues.map(i=>'<p><b>'+esc(i.type)+':</b> '+esc(i.detail)+(i.matching_base?' Matching base entity: '+esc(i.matching_base):'')+'</p>').join('')+(x.suggestions&&x.suggestions.length?'<div class="name-suggestions"><div class="name-suggestions-title">Suggested friendlier entity IDs</div>'+x.suggestions.map(s=>'<div class="name-suggestion"><code>'+esc(s)+'</code><button type="button" data-copy-name="'+esc(s)+'">Copy</button></div>').join('')+'<div class="name-suggestions-note">Suggestions only. Review and choose one if it fits; nothing is renamed automatically.</div></div>':'')+(active.length||historical.length?usageSection('Active usage',active,x.entity_id)+usageSection('Historical usage',historical,x.entity_id):'<p class="line">No references found in the current scan scope.</p>')+'</div>';
   }).join('')
  ).join('');
  rail.innerHTML=letters.map(letter=>'<button type="button" data-jump-letter="'+esc(letter)+'" aria-label="Jump to '+esc(letter)+'">'+esc(letter)+'</button>').join('');
@@ -374,6 +382,13 @@ function closeFileViewer(){
 }
 $('viewerBack').addEventListener('click',closeFileViewer);
 document.addEventListener('click',e=>{
+ const copyName=e.target.closest('[data-copy-name]');
+ if(copyName){
+  const value=copyName.getAttribute('data-copy-name');
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(value).then(()=>{copyName.textContent='Copied';setTimeout(()=>copyName.textContent='Copy',1200);}).catch(()=>{copyName.textContent='Select text';});}
+  else{const area=document.createElement('textarea');area.value=value;document.body.appendChild(area);area.select();try{document.execCommand('copy');copyName.textContent='Copied';}catch(_){copyName.textContent='Select text';}area.remove();}
+  return;
+ }
  const stat=e.target.closest('[data-scroll-to]');
  if(stat){const section=$(stat.getAttribute('data-scroll-to'));if(section){section.open=true;section.scrollIntoView({behavior:'smooth',block:'start'});}return;}
  const jump=e.target.closest('[data-jump-letter]');
