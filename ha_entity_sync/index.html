@@ -248,6 +248,7 @@ async function runScan(force=false){
    ['Registered entities',report.registered_entities],
    ['Entities with active references',report.entities_with_active_references],
    ['Historical-only entities',report.entities_with_historical_only_references],
+   ['Needs-review-only entities',report.entities_with_needs_review_only_references],
    ['Unreferenced entities',report.unreferenced_entities],
    ['Reference records (entity/file groups)',report.reference_records],
    ['Reference hits (ID occurrences)',report.reference_hits],
@@ -265,7 +266,7 @@ function clearSession(){
  report=null;
  $('status').textContent='Ready. A fresh read-only scan will run when the app opens.';
  $('stats').innerHTML=[
-  ['Registered entities','—'],['Entities with active references','—'],['Historical-only entities','—'],['Unreferenced entities','—'],['Reference records','—'],['Reference hits','—'],['Files scanned','—']
+  ['Registered entities','—'],['Entities with active references','—'],['Historical-only entities','—'],['Needs-review-only entities','—'],['Unreferenced entities','—'],['Reference records','—'],['Reference hits','—'],['Files scanned','—']
  ].map(([label,value])=>'<div class="stat"><div class="num">'+value+'</div><div class="label">'+label+'</div></div>').join('');
  $('results').innerHTML='<div class="empty">No scan results yet.</div>';
  $('staleResults').innerHTML='<div class="empty">Run a scan to check for candidates.</div>';
@@ -280,8 +281,9 @@ window.addEventListener('pageshow',event=>{if(event.persisted)clearSession();run
 $('filter').addEventListener('input',render);
 $('rescanButton').addEventListener('click',()=>runScan(true));
 function exportData(){
- const active=(report?.results||[]).filter(item=>item.category!=='Historical');
- return {exported_at:new Date().toISOString(),last_scanned_at:report?.last_scanned_at||null,read_only:true,active_dependencies:active,stale_candidates:report?.potentially_stale||[]};
+ const active=(report?.results||[]).filter(item=>item.category==='Active configuration'||item.category==='Dashboard');
+ const review=(report?.results||[]).filter(item=>item.category==='Needs review');
+ return {exported_at:new Date().toISOString(),last_scanned_at:report?.last_scanned_at||null,read_only:true,active_dependencies:active,needs_review_references:review,stale_candidates:report?.potentially_stale||[]};
 }
 function downloadFile(name,type,content){
  const blob=new Blob([content],{type});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
@@ -291,6 +293,7 @@ $('exportCsv').addEventListener('click',()=>{
  if(!report)return;
  const data=exportData();const rows=[['record_type','entity_id','file','category','count','line_numbers','priority','reason']];
  for(const item of data.active_dependencies)rows.push(['active_dependency',item.entity_id,item.file,item.category,item.count,(item.lines||[]).join('; '),'','']);
+ for(const item of data.needs_review_references)rows.push(['needs_review_reference',item.entity_id,item.file,item.category,item.count,(item.lines||[]).join('; '),'','']);
  for(const item of data.stale_candidates)rows.push(['stale_candidate',item.entity_id,item.file,item.category,item.count,(item.lines||[]).join('; '),item.priority||'',item.reason||'']);
  const csv=rows.map(row=>row.map(value=>'"'+String(value??'').replace(/"/g,'""')+'"').join(',')).join('\\r\\n');
  downloadFile('ha-entity-sync-export.csv','text/csv;charset=utf-8',csv);
