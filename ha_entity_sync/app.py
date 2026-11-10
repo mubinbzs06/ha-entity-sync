@@ -11,6 +11,7 @@ from collections import Counter
 from datetime import datetime, timezone
 
 from recovery import RecoveryError, load_audit, recover_entity_pair, rollback_entity_recovery
+from config_repair import ConfigRepairError, preview_config_repair, apply_config_repair, rollback_config_repair
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -298,7 +299,6 @@ def line_update_evidence(reference, old_id, new_id):
                 "after": re.sub(r"(?<![A-Za-z0-9_])" + re.escape(old_id) + r"(?![A-Za-z0-9_])", new_id, before),
             })
     return updates
-
 
 def evaluate_replacement_identity(old, replacement):
     """Return transparent identity evidence; names never establish identity."""
@@ -597,8 +597,7 @@ def build_clean_name_suggestions(registry, references):
         collision = registered_collision or batch_collision
         if batch_collision:
             reasons.append("Another entity in this scan already suggests the same target ID")
-        confidence = "low" if collision or suffix_rule else "high" if repeated_rule else "low"
-        refs = [ref for ref in refs_by_id.get(entity_id, []) if ref.get("category") in {"Dashboard", "Active configuration"}]
+        confidence = "low" if collision or suffix_rule else "high" if repeated_rule else "low"        refs = [ref for ref in refs_by_id.get(entity_id, []) if ref.get("category") in {"Dashboard", "Active configuration"}]
         updates = []
         for reference in refs:
             updates.extend(line_update_evidence(reference, entity_id, proposed))
@@ -868,7 +867,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         route = urlparse(self.path).path
-        if route not in {"/api/recover", "/api/rollback"}:
+        if route not in {"/api/recover", "/api/rollback", "/api/config-repair/preview", "/api/config-repair/apply", "/api/config-repair/rollback"}:
             self.send_error(405, "Only approved entity recovery actions are accepted")
             return
         origin = self.headers.get("Origin")
@@ -897,8 +896,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(415, "JSON request body required")
             return
         try:
-            length = int(self.headers.get("Content-Length", "0"))
-        except ValueError:
+            length = int(self.headers.get("Content-Length", "0"))        except ValueError:
             self.send_error(400, "Invalid request length")
             return
         if length <= 0 or length > 16384:
@@ -914,16 +912,36 @@ class Handler(BaseHTTPRequestHandler):
                     str(request_data.get("replacement_entity_id") or ""),
                     fetch_live_states,
                 )
-            else:
+            elif route == "/api/rollback":
                 result = rollback_entity_recovery(
                     str(request_data.get("record_id") or ""),
                     fetch_live_states,
                 )
-            status = 200 if result.get("ok") else 409
+            elif route == "/api/config-repair/preview":
+                result = preview_config_repair(
+                    CONFIG,
+                    str(request_data.get("file") or ""),
+                    str(request_data.get("old_entity_id") or ""),
+                    str(request_data.get("replacement_entity_id") or ""),
+                )
+            elif route == "/api/config-repair/apply":
+                result = apply_config_repair(
+                    CONFIG,
+                    str(request_data.get("file") or ""),
+                    str(request_data.get("old_entity_id") or ""),
+                    str(request_data.get("replacement_entity_id") or ""),
+                    str(request_data.get("expected_sha256") or ""),
+                )
+            else:
+                result = rollback_config_repair(
+                    CONFIG,
+                    str(request_data.get("record_id") or ""),
+                )
+            status = 200 if result.get("ok", True) else 409
         except (ValueError, UnicodeError) as err:
             result = {"ok": False, "status": "invalid_request", "error": str(err)}
             status = 400
-        except RecoveryError as err:
+        except (RecoveryError, ConfigRepairError) as err:
             result = {"ok": False, "status": "blocked", "error": str(err)}
             status = 409
         except Exception as err:
