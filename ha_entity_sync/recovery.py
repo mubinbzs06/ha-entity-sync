@@ -10,6 +10,8 @@ import re
 import secrets
 import tarfile
 import time
+import threading
+from functools import wraps
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -25,6 +27,21 @@ NUMERIC_SUFFIX_RE = re.compile(r"_(\d+)$")
 
 class RecoveryError(RuntimeError):
     """Raised when a recovery precondition or verification fails."""
+
+
+_RECOVERY_LOCK = threading.Lock()
+
+
+def _serialize_recovery(function):
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        if not _RECOVERY_LOCK.acquire(blocking=False):
+            raise RecoveryError("Another recovery or rollback is already running. Wait for it to finish.")
+        try:
+            return function(*args, **kwargs)
+        finally:
+            _RECOVERY_LOCK.release()
+    return wrapped
 
 
 def _unwrap(payload):
@@ -299,6 +316,7 @@ def _validate_pair(old_id, replacement_id, fetch_live_states):
     return old_entry, replacement_entry, identity
 
 
+@_serialize_recovery
 def recover_entity_pair(old_id, replacement_id, fetch_live_states):
     """Move the old entry aside, restore the live entity to the original ID, and retain rollback."""
     old_entry, replacement_entry, identity = _validate_pair(old_id, replacement_id, fetch_live_states)
@@ -437,6 +455,7 @@ def recover_entity_pair(old_id, replacement_id, fetch_live_states):
         }
 
 
+@_serialize_recovery
 def rollback_entity_recovery(record_id, fetch_live_states):
     """Reverse a completed recovery, taking and verifying a second backup first."""
     record = next((item for item in load_audit() if item.get("id") == record_id), None)
