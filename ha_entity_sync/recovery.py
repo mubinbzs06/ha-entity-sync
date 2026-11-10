@@ -184,11 +184,11 @@ def verify_backup_archive(archive_bytes, required_entity_ids, expected_entries=N
                     registry_bytes = ha_tar.extractfile(registry_member).read()
         registry = json.loads(registry_bytes.decode("utf-8"))
         entities = registry.get("data", {}).get("entities", [])
-        present = {
-            item.get("entity_id")
-            for item in entities if isinstance(item, dict)
+        found = {
+            item.get("entity_id"): item
+            for item in entities if isinstance(item, dict) and item.get("entity_id")
         }
-        missing = [entity_id for entity_id in required_entity_ids if entity_id not in present]
+        missing = [entity_id for entity_id in required_entity_ids if entity_id not in found]
         if missing:
             raise RecoveryError("Verified backup is missing required registry entries: " + ", ".join(missing))
         for entity_id, expected in (expected_entries or {}).items():
