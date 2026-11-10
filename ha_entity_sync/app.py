@@ -389,7 +389,7 @@ def find_dashboard_card_context(file_path, entity_id):
 
     def contains_entity(value):
         if isinstance(value, str):
-            return entity_id in value
+            return re.search(r"(?<![A-Za-z0-9_])" + re.escape(entity_id) + r"(?![A-Za-z0-9_])", value) is not None
         if isinstance(value, dict):
             return any(contains_entity(child) for child in value.values())
         if isinstance(value, list):
