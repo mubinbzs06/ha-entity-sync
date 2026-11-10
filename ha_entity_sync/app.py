@@ -991,8 +991,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(415, "JSON request body required")
             return
         try:
-            length = int(self.headers.get("Content-Length", "0"))        except ValueError:
-            self.send_error(400, "Invalid request length")            return
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            self.send_error(400, "Invalid request length")
+            return
         if length <= 0 or length > 16384:
             self.send_error(413, "Invalid recovery request size")
             return
