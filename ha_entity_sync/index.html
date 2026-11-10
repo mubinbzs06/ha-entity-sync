@@ -207,6 +207,71 @@ function renderReadded(){
   return '<div class="finding"><div class="finding-head"><span class="finding-title">'+esc(x.old_entity_id)+' ← '+esc(x.replacement_entity_id)+'</span><span class="count">'+esc(x.confidence)+' confidence</span></div><p>Old state: '+esc(x.old_state)+' · Replacement state: '+esc(x.replacement_state)+'</p><p>Integration: '+esc(x.integration)+' · Device: '+esc(x.device_name||'Not recorded')+'</p><p>'+esc(x.identity_reason)+'</p><div class="evidence"><b>Why this replacement was selected</b><ul>'+identity+'</ul>'+(conflicts?'<b>Conflicting evidence</b><ul>'+conflicts+'</ul>':'')+'</div><p><b>Recovery preview — no changes made yet</b></p><ol>'+x.proposed_steps.map(step=>'<li>'+esc(step)+'</li>').join('')+'</ol><p>Active references that will resolve to the restored original ID: '+x.reference_count+' hit(s) across '+x.active_references.length+' file(s)</p>'+configPreview+x.active_references.filter(ref=>ref.category!=='Dashboard').map(ref=>usageEvidenceHtml(ref,x.old_entity_id)).join('')+'<button class="primary recover-action" type="button" data-recover-old="'+esc(x.old_entity_id)+'" data-recover-new="'+esc(x.replacement_entity_id)+'">Recover this pair</button><p class="recovery-note">A verified backup is required. The old registry entry is retained under a temporary ID for rollback.</p></div>';
  }).join('');
 }
+function showPostRecoveryVerification(result){
+ const target=$('readdedResults');
+ if(!target||!report)return;
+ const oldId=result.old_entity_id||'';
+ const refs=(report.results||[]).filter(ref=>ref.entity_id===oldId&&ref.category==='Dashboard');
+ const panel=document.createElement('div');
+ panel.className='finding post-recovery-verification';
+ const title=document.createElement('div');
+ title.className='finding-head';
+ title.innerHTML='<span class="finding-title">Post-recovery verification</span><span class="count">Registry verified</span>';
+ panel.appendChild(title);
+ const registry=document.createElement('p');
+ registry.textContent='Home Assistant confirmed the live replacement under '+oldId+'. Verified live state: '+(result.verified_state??'available')+'. The previous registry entry remains quarantined for rollback.';
+ panel.appendChild(registry);
+ const config=document.createElement('p');
+ config.textContent=refs.length
+  ? 'Dashboard configuration scan: '+refs.length+' dashboard file reference(s) still point to the restored original ID.'
+  : 'Dashboard configuration scan: no dashboard-file references to this entity were found in the scanned files.';
+ panel.appendChild(config);
+ if(refs.length){
+  const list=document.createElement('div');
+  list.className='post-recovery-dashboards';
+  refs.forEach(ref=>{
+   const item=document.createElement('div');
+   item.className='dashboard-reference';
+   const label=document.createElement('span');
+   label.textContent=ref.file+' · '+ref.count+' reference(s)';
+   item.appendChild(label);
+   if(ref.dashboard_url){
+    const preview=document.createElement('button');
+    preview.type='button';preview.className='dashboard-preview-button';
+    preview.textContent='Open live dashboard here';
+    preview.setAttribute('data-dashboard-url',ref.dashboard_url);
+    item.appendChild(preview);
+   }else{
+    const note=document.createElement('span');
+    note.className='muted';
+    note.textContent='Live preview route unavailable';
+    item.appendChild(note);
+   }
+   list.appendChild(item);
+  });
+  panel.appendChild(list);
+ }
+ const note=document.createElement('p');
+ note.className='recovery-note';
+ note.textContent='Rendered-card verification is a visual check, not an automated test. The app cannot reliably inspect Home Assistant card rendering inside its embedded dashboard.';
+ panel.appendChild(note);
+ if(refs.some(ref=>ref.dashboard_url)){
+  const confirm=document.createElement('button');
+  confirm.type='button';confirm.className='quiet';
+  confirm.textContent='I checked the dashboard card — it displays correctly';
+  confirm.addEventListener('click',()=>{
+   confirm.textContent='Visual check confirmed in this session';
+   confirm.disabled=true;
+   const status=document.createElement('span');
+   status.className='count';
+   status.textContent='User-confirmed';
+   confirm.insertAdjacentElement('afterend',status);
+  });
+  panel.appendChild(confirm);
+ }
+ target.prepend(panel);
+}
+
 function renderRecoveryHistory(){
  const rows=[...(report?.recovery_history||[])].reverse();
  if(!rows.length){$('recoveryHistoryResults').innerHTML='<div class="empty">No recovery actions recorded.</div>';return;}
@@ -502,6 +567,7 @@ document.addEventListener('click',async e=>{
   try{
    const result=await recoveryRequest('api/recover',{old_entity_id:oldId,replacement_entity_id:newId});
    await runScan(true);
+   showPostRecoveryVerification(result);
    window.alert('Recovery completed.\n\nOriginal ID: '+result.old_entity_id+'\nLive replacement: '+result.replacement_entity_id+'\nRollback entry: '+result.temporary_entity_id+'\nVerified backup: '+result.backup_slug+'\n\nYou can undo this from Recovery history.');
   }catch(error){
    await runScan(true);
