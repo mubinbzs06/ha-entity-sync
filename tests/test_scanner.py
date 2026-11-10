@@ -83,6 +83,25 @@ class ScannerTests(unittest.TestCase):
 
 
 
+    def test_naming_finding_exposes_entity_source_from_registry(self):
+        registry = {
+            "data": {
+                "entities": [
+                    {"entity_id": "sensor.known", "platform": "mqtt"},
+                    {"entity_id": "sensor.fan_speed_2", "platform": "mqtt"},
+                ]
+            }
+        }
+        (self.root / ".storage" / "core.entity_registry").write_text(
+            json.dumps(registry), encoding="utf-8"
+        )
+        report = app.scan()
+        finding = next(
+            item for item in report["naming_findings"]
+            if item["entity_id"] == "sensor.fan_speed_2"
+        )
+        self.assertEqual(finding["source"], "mqtt")
+
     def test_naming_findings_include_active_and_historical_usage_locations(self):
         (self.root / "automations.yaml").write_text(
             "action:\n"
