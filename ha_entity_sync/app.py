@@ -16,7 +16,9 @@ from urllib.parse import parse_qs, urlparse
 CONFIG = Path("/homeassistant")
 REGISTRY = CONFIG / ".storage" / "core.entity_registry"
 MAX_FILE_BYTES = 5 * 1024 * 1024
-VERSION = "0.2.11"
+MAX_SCAN_FILES = 5000
+MAX_SCAN_BYTES = 100 * 1024 * 1024
+VERSION = "0.2.12"
 PORT = 8099
 SCAN_CACHE_SECONDS = 60
 IGNORED_STALE_DOMAINS = {"conversation"}
@@ -70,6 +72,8 @@ lock media_player notify number persistent_notification person remote scene
 
 
 def load_registry():
+    if not safe_config_file(REGISTRY) or not REGISTRY.is_file():
+        raise OSError("Entity registry is missing, linked, or outside the configuration mount")
     data = json.loads(REGISTRY.read_text(encoding="utf-8"))
     entities = data.get("data", {}).get("entities", [])
     clean = [item for item in entities if isinstance(item, dict) and item.get("entity_id")]
@@ -84,6 +88,16 @@ def is_backup_path(path):
         if part.lower().endswith(BACKUP_SUFFIXES):
             return True
     return False
+
+
+def safe_config_file(path):
+    """Reject symlinks and files resolving outside the mounted HA config."""
+    try:
+        if path.is_symlink():
+            return False
+        return path.resolve(strict=True).is_relative_to(CONFIG.resolve())
+    except (OSError, RuntimeError):
+        return False
 
 
 def candidate_files():
@@ -106,19 +120,20 @@ def candidate_files():
                 if is_backup_path(path) or name in SKIP_NAMES:
                     continue
                 try:
-                    if path.is_file() and path.stat().st_size <= MAX_FILE_BYTES:
+                    if safe_config_file(path) and path.is_file() and path.stat().st_size <= MAX_FILE_BYTES:
                         yield path
                 except OSError:
                     continue
             continue
 
-        dirs[:] = [
+        dirs[:] = sorted(
             d for d in dirs
             if d.lower() not in SKIP_DIRS
             and not is_backup_path(relative_root / d)
-        ]
+            and not (root_path / d).is_symlink()
+        )
 
-        for name in names:
+        for name in sorted(names):
             path = root_path / name
             rel = path.relative_to(CONFIG)
             lower_name = name.lower()
@@ -129,7 +144,7 @@ def candidate_files():
             if path.suffix.lower() not in ALLOWED_SUFFIXES:
                 continue
             try:
-                if path.is_file() and path.stat().st_size <= MAX_FILE_BYTES:
+                if safe_config_file(path) and path.is_file() and path.stat().st_size <= MAX_FILE_BYTES:
                     yield path
             except OSError:
                 continue
@@ -175,36 +190,17 @@ def classify_reference(path):
 
 
 def suggest_entity_names(entity_id, occupied):
-    """Return advisory, unique alternatives without changing the registered ID."""
+    """Suggest only a clear adjacent-repeat cleanup; never strip numeric suffixes."""
     domain, object_id = entity_id.split(".", 1)
-    words = [word for word in object_id.split("_") if word]
-    candidates = []
-
-    # Remove a trailing numeric suffix only as a candidate, never as an assumption.
-    base_words = words[:-1] if words and words[-1].isdigit() else words[:]
-    # Collapse repeated tokens while preserving their original order.
-    deduped = []
-    for word in base_words:
-        if word not in deduped:
-            deduped.append(word)
-
-    def add(parts):
-        candidate = domain + "." + "_".join(parts)
-        if parts and candidate != entity_id and candidate not in occupied and candidate not in candidates:
-            candidates.append(candidate)
-
-    add(deduped)
-
-    # If the original object ID is overly verbose, offer a compact form by
-    # removing generic trailing descriptors, but keep at least two meaningful tokens.
-    generic = {"sensor", "device", "entity", "value", "reading"}
-    compact = deduped[:]
-    while len(compact) > 2 and compact[-1] in generic:
-        compact.pop()
-    add(compact)
-
-    return candidates[:3]
-
+    words = object_id.split("_")
+    for width in range(len(words) // 2, 0, -1):
+        if words[:width] == words[width:2 * width]:
+            proposed_words = words[:width] + words[2 * width:]
+            candidate = domain + "." + "_".join(proposed_words)
+            if proposed_words and candidate != entity_id and candidate not in occupied:
+                return [candidate]
+            return []
+    return []
 
 def naming_audit(registry):
     ids = {item["entity_id"] for item in registry}
@@ -244,16 +240,30 @@ def fetch_live_states():
     """Read live HA states through the Supervisor proxy; never mutate HA."""
     token = os.environ.get("SUPERVISOR_TOKEN")
     if not token:
+        print("HA Entity Sync: live-state API unavailable; SUPERVISOR_TOKEN is missing", flush=True)
         return None
+    endpoint = "http://supervisor/core/api/states"
     request = urllib.request.Request(
-        "http://supervisor/core/api/states",
+        endpoint,
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
     )
     try:
         with urllib.request.urlopen(request, timeout=8) as response:
+            status = response.status if hasattr(response, "status") else response.getcode()
+            print(f"HA Entity Sync: GET {endpoint} returned HTTP {status}", flush=True)
             payload = json.loads(response.read().decode("utf-8"))
+        if not isinstance(payload, list):
+            print("HA Entity Sync: live-state API returned an unexpected JSON payload", flush=True)
+            return None
         return {item.get("entity_id"): item for item in payload if isinstance(item, dict) and item.get("entity_id")}
-    except (OSError, ValueError, urllib.error.URLError):
+    except urllib.error.HTTPError as err:
+        print(f"HA Entity Sync: GET {endpoint} failed with HTTP {err.code}", flush=True)
+        return None
+    except urllib.error.URLError as err:
+        print(f"HA Entity Sync: GET {endpoint} failed; network reason: {err.reason}", flush=True)
+        return None
+    except (OSError, ValueError, TypeError) as err:
+        print(f"HA Entity Sync: GET {endpoint} failed: {type(err).__name__}: {err}", flush=True)
         return None
 
 
@@ -261,6 +271,8 @@ def load_device_names():
     """Read device labels only as corroborating identity metadata."""
     path = CONFIG / ".storage" / "core.device_registry"
     try:
+        if not safe_config_file(path) or not path.is_file():
+            return {}
         data = json.loads(path.read_text(encoding="utf-8"))
         return {
             item.get("id"): (item.get("name_by_user") or item.get("name") or "")
@@ -319,20 +331,17 @@ def detect_readded_pairs(registry, references, live_states, device_names):
         new_platform = replacement.get("platform")
         old_config = old.get("config_entry_id")
         new_config = replacement.get("config_entry_id")
-        old_device_name = device_names.get(old_device, "").strip().casefold()
-        new_device_name = device_names.get(new_device, "").strip().casefold()
-        old_original = (old.get("original_name") or old.get("name") or "").strip().casefold()
-        new_original = (replacement.get("original_name") or replacement.get("name") or "").strip().casefold()
+        old_unique = old.get("unique_id")
+        new_unique = replacement.get("unique_id")
 
-        if old_device and old_device == new_device:
+        # Names alone are not identity. Require a shared unique ID, registered
+        # device lineage, or the same integration config entry.
+        if old_unique and old_unique == new_unique:
+            confidence, identity_reason = "high", "Same integration unique_id"
+        elif old_device and old_device == new_device:
             confidence, identity_reason = "high", "Same registered device ID"
         elif old_config and old_config == new_config and old_platform and old_platform == new_platform:
             confidence, identity_reason = "high", "Same integration and config entry"
-        elif old_platform and old_platform == new_platform and (
-            (old_device_name and old_device_name == new_device_name)
-            or (old_original and old_original == new_original)
-        ):
-            confidence, identity_reason = "medium", "Same integration with matching device/entity name"
         else:
             continue
 
@@ -373,37 +382,45 @@ def build_clean_name_suggestions(registry, references):
     for reference in references:
         refs_by_id.setdefault(reference["entity_id"], []).append(reference)
     suggestions = []
+    suggested_targets = set()
     for item in registry:
         entity_id = item["entity_id"]
         domain, object_id = entity_id.split(".", 1)
         words = object_id.split("_")
         candidate_words = words[:]
         reasons = []
-        # Remove a duplicated adjacent sequence, preserving meaningful numeric tokens.
+        repeated_rule = False
+        suffix_rule = False
+
+        # Primary rule: collapse one immediately repeated adjacent word sequence.
         for width in range(len(candidate_words) // 2, 0, -1):
             if candidate_words[:width] == candidate_words[width:2 * width]:
                 candidate_words = candidate_words[:width] + candidate_words[2 * width:]
                 reasons.append("Collapsed an immediately repeated name sequence")
+                repeated_rule = True
                 break
-        suffix_removed = False
+
+        # A trailing _2/_3 may be an HA re-add suffix, but may also identify a
+        # real numbered device. Keep this as a low-confidence advisory only.
         if candidate_words and candidate_words[-1] in {"2", "3"}:
             removed_suffix = candidate_words.pop()
-            suffix_removed = True
-            reasons.append(f"Removed trailing HA duplicate suffix _{removed_suffix}; verify it is not intentional")
-        platform_removed = False
-        platform = (item.get("platform") or "").casefold()
-        if platform and len(candidate_words) > 1 and candidate_words[0].casefold() == platform:
-            candidate_words = candidate_words[1:]
-            platform_removed = True
-            reasons.append("Removed a leading integration prefix confirmed by registry metadata")
+            reasons.append(f"Possible duplicate suffix _{removed_suffix}; verify this is not an intentional numbered device")
+            suffix_rule = True
+
+        # Integration-prefix removal is disabled: it can erase useful identity
+        # (for example sun_next_dawn or wiz_rgbw_tunable).
         if candidate_words == words:
             continue
         proposed = domain + "." + "_".join(candidate_words)
         if proposed == domain + ".":
             continue
-        collision = proposed in occupied and proposed != entity_id
-        repeated_only = any("repeated name sequence" in reason for reason in reasons) and not suffix_removed and not platform_removed
-        confidence = "low" if collision else "high" if repeated_only else "medium"
+
+        registered_collision = proposed in occupied and proposed != entity_id
+        batch_collision = proposed in suggested_targets
+        collision = registered_collision or batch_collision
+        if batch_collision:
+            reasons.append("Another entity in this scan already suggests the same target ID")
+        confidence = "low" if collision or suffix_rule else "high" if repeated_rule else "low"
         refs = [ref for ref in refs_by_id.get(entity_id, []) if ref.get("category") in {"Dashboard", "Active configuration"}]
         updates = []
         for reference in refs:
@@ -423,8 +440,8 @@ def build_clean_name_suggestions(registry, references):
             ],
             "read_only_plan": True,
         })
+        suggested_targets.add(proposed)
     return suggestions
-
 def scan():
     started = time.monotonic()
     if not REGISTRY.exists():
@@ -442,13 +459,30 @@ def scan():
     references = {}
     candidates = {}
     scanned = 0
+    scanned_bytes = 0
+    scan_warnings = []
 
     for path in candidate_files():
+        if scanned >= MAX_SCAN_FILES:
+            scan_warnings.append(
+                f"Scan stopped at the safety limit of {MAX_SCAN_FILES} files; remaining files were not checked."
+            )
+            break
         try:
+            file_size = path.stat().st_size
+            if scanned_bytes + file_size > MAX_SCAN_BYTES:
+                scan_warnings.append(
+                    f"Scan stopped at the safety limit of {MAX_SCAN_BYTES // (1024 * 1024)} MB; remaining files were not checked."
+                )
+                break
+            if not safe_config_file(path):
+                scan_warnings.append(f"Skipped a symlink or out-of-scope file: {path.relative_to(CONFIG)}")
+                continue
             lines = path.read_text(encoding="utf-8").splitlines()
         except (OSError, UnicodeError):
             continue
         scanned += 1
+        scanned_bytes += file_size
         rel = str(path.relative_to(CONFIG))
         category = classify_reference(Path(rel))
         for line_no, line in enumerate(lines, 1):
@@ -537,6 +571,8 @@ def scan():
         "entities_found": len(entity_ids),
         "registered_entities": len(entity_ids),
         "files_scanned": scanned,
+        "bytes_scanned": scanned_bytes,
+        "scan_warnings": scan_warnings,
         "entities_with_references": len(referenced_entities),
         "entities_with_any_references": len(referenced_entities),
         "entities_with_active_references": active_reference_count,
@@ -594,8 +630,9 @@ class Handler(BaseHTTPRequestHandler):
         route = urlparse(self.path).path
         if route == "/api/scan":
             force = parse_qs(urlparse(self.path).query).get("force", ["0"])[0] == "1"
-            payload = json.dumps(get_scan_report(force=force)).encode()
-            self.send_response(200)
+            report = get_scan_report(force=force)
+            payload = json.dumps(report).encode()
+            self.send_response(200 if report.get("ok") else 503)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
@@ -624,23 +661,41 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(page)
         elif route == "/health":
-            self.send_response(200)
+            ready = safe_config_file(REGISTRY) and REGISTRY.is_file()
+            payload = json.dumps({
+                "ok": ready,
+                "version": VERSION,
+                "registry_available": ready,
+                "read_only": True,
+            }).encode()
+            self.send_response(200 if ready else 503)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
-            self.wfile.write(b"ok")
+            self.wfile.write(payload)
         else:
             self.send_error(404)
 
     def do_POST(self):
         self.send_error(405, "Read-only application: POST is disabled")
 
+    def end_headers(self):
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
     def log_message(self, fmt, *args):
         print("HA Entity Sync:", fmt % args)
 
 
+class HAEntitySyncHTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
+    block_on_close = False
+
+
 if __name__ == "__main__":
-    server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    server = HAEntitySyncHTTPServer(("0.0.0.0", PORT), Handler)
     print(f"HA Entity Sync version {VERSION} starting on 0.0.0.0:{PORT} (read-only; scan cache {SCAN_CACHE_SECONDS}s)", flush=True)
     print(f"HA Entity Sync listening on 0.0.0.0:{PORT}", flush=True)
-    print("HA Entity Sync: performing startup scan", flush=True)
-    get_scan_report(force=True)
+    print("HA Entity Sync: ready; scans start when the panel is opened", flush=True)
     server.serve_forever()
