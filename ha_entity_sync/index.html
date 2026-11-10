@@ -26,6 +26,17 @@ main{padding:28px clamp(16px,3vw,42px);min-width:0}.top{display:flex;align-items
 .finding{scroll-margin-top:75px}
 #backToTop{position:fixed;left:14px;bottom:18px;z-index:35;border:1px solid var(--line);background:#202e39ed;color:var(--text);border-radius:999px;padding:10px 13px;box-shadow:0 6px 20px #0006;display:none;font-size:12px;font-weight:700}
 #backToTop.visible{display:block}
+#fileViewer{position:fixed;inset:0;z-index:60;display:none;flex-direction:column;background:var(--bg);overflow:hidden}
+#fileViewer.visible{display:flex}
+.viewer-toolbar{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--panel);flex:none}
+.viewer-back{border:1px solid var(--line);background:var(--panel2);color:var(--text);border-radius:9px;padding:9px 13px;font-weight:700;white-space:nowrap}
+.viewer-title{min-width:0;font-size:13px;font-weight:700;overflow-wrap:anywhere}
+.viewer-subtitle{color:var(--muted);font-size:12px;font-weight:400}
+.viewer-code{overflow:auto;overscroll-behavior:contain;padding:12px 0 40px;font:12px/1.65 ui-monospace,SFMono-Regular,Consolas,monospace}
+.code-line{display:grid;grid-template-columns:52px minmax(0,1fr);padding:0 14px;white-space:pre-wrap;overflow-wrap:anywhere;min-height:20px}
+.code-line.target{background:#59451f;border-left:3px solid var(--amber);padding-left:11px}
+.line-number{color:var(--muted);text-align:right;padding-right:14px;user-select:none}
+.viewer-error{padding:20px;color:var(--red)}
 @media(max-width:850px){.shell{grid-template-columns:1fr}aside{display:none}main{padding:20px 16px 36px}.mobile-brand{display:block;color:var(--muted);font-size:12px;margin-bottom:16px}.stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.stat{padding:14px}.top{align-items:flex-start}.primary{width:100%}.top-actions{width:100%}.section-head{align-items:flex-start;flex-direction:column} .toolbar{flex-wrap:wrap}.search-sticky{top:0}.alphabet-rail{right:3px;padding:5px 3px}.alphabet-rail button{font-size:9px;padding:3px 3px}#backToTop{left:8px;bottom:12px}}
 @media(max-width:390px){.group>summary{padding:12px}.group-meta{font-size:11px}.entity>summary{align-items:flex-start;flex-wrap:wrap}.count{margin-left:0}.stats{gap:7px}}
 </style>
@@ -66,13 +77,20 @@ main{padding:28px clamp(16px,3vw,42px);min-width:0}.top{display:flex;align-items
 </div>
 <nav id="alphabetRail" class="alphabet-rail" aria-label="Jump to naming review letter"></nav>
 <button id="backToTop" type="button" aria-label="Back to top">↑ Top</button>
+<section id="fileViewer" aria-label="Read-only file viewer">
+  <header class="viewer-toolbar">
+    <button id="viewerBack" class="viewer-back" type="button">← Back to entity</button>
+    <div class="viewer-title"><div id="viewerPath">File</div><div class="viewer-subtitle" id="viewerLine">Read-only file view</div></div>
+  </header>
+  <div id="viewerCode" class="viewer-code"><div class="empty">Choose a file reference to open it.</div></div>
+</section>
 <script>
 let report=null;
 const $=id=>document.getElementById(id);
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function evidenceHtml(r){
  const matches=r.matches||[];
- return matches.map(m=>'<div class="evidence"><div class="evidence-head"><span class="path">'+esc(r.file)+'</span><span class="line">Line '+esc(m.line)+'</span><button class="copy" type="button" data-copy="'+esc(r.file+':'+m.line)+'">Copy location</button></div><code class="snippet">'+esc(m.text||'')+'</code></div>').join('') ||
+ return matches.map(m=>'<div class="evidence"><div class="evidence-head"><span class="path">'+esc(r.file)+'</span><span class="line">Line '+esc(m.line)+'</span><button class="copy" type="button" data-open-file="'+esc(r.file)+'" data-line="'+esc(m.line)+'">Open file ↗</button></div><code class="snippet">'+esc(m.text||'')+'</code></div>').join('') ||
  '<div class="evidence"><div class="path">'+esc(r.file)+'</div><div class="line">Line(s): '+esc((r.lines||[]).join(', '))+'</div></div>';
 }
 function groupedResults(){
@@ -87,7 +105,7 @@ function groupedResults(){
   const hitCount=rows.reduce((n,x)=>n+x.refs.reduce((m,r)=>m+r.count,0),0);
   return '<details class="group" data-category="'+esc(category)+'"><summary><span class="dot"></span><span class="group-title">'+esc(category)+'</span><span class="group-meta">'+rows.length+' entities · '+hitCount+' hits</span></summary><div class="group-body">'+rows.map(x=>{
    const count=x.refs.reduce((n,r)=>n+r.count,0);
-   return '<details class="entity"><summary><span class="entity-id">'+esc(x.id)+'</span><span class="count">'+x.refs.length+' file(s) · '+count+' reference(s)</span></summary><div class="entity-body">'+x.refs.map(evidenceHtml).join('')+'</div></details>';
+   return '<details class="entity" data-entity-id="'+esc(x.id)+'"><summary><span class="entity-id">'+esc(x.id)+'</span><span class="count">'+x.refs.length+' file(s) · '+count+' reference(s)</span></summary><div class="entity-body">'+x.refs.map(evidenceHtml).join('')+'</div></details>';
   }).join('')+'</div></details>';
  }).join('');
 }
@@ -171,17 +189,47 @@ window.addEventListener('scroll',()=>{
 },{passive:true});
 $('expandAll').onclick=()=>document.querySelectorAll('.group,.candidate').forEach(x=>x.open=true);
 $('collapseAll').onclick=()=>document.querySelectorAll('.group,.entity,.candidate').forEach(x=>x.open=false);
-document.addEventListener('click',async e=>{
+let returnToEntity=null;
+async function openFile(path,line){
+ returnToEntity=document.querySelector('.entity[open], .candidate[open]');
+ const base=window.location.pathname.endsWith('/')?window.location.pathname:window.location.pathname+'/';
+ $('fileViewer').classList.add('visible');
+ $('viewerPath').textContent=path;
+ $('viewerLine').textContent='Loading read-only file…';
+ $('viewerCode').innerHTML='<div class="empty">Opening file…</div>';
+ try{
+  const response=await fetch(base+'api/file?path='+encodeURIComponent(path),{cache:'no-store'});
+  if(!response.ok)throw new Error('File could not be opened ('+response.status+').');
+  const data=await response.json();
+  const lines=data.content.split(/\r?\n/);
+  const target=Number(line)||0;
+  $('viewerLine').textContent='Read-only · '+lines.length+' lines'+(target?' · Reference at line '+target:'');
+  $('viewerCode').innerHTML=lines.map((value,index)=>{
+   const number=index+1;
+   return '<div class="code-line'+(number===target?' target':'')+'"'+(number===target?' id="viewer-target-line"':'')+'><span class="line-number">'+number+'</span><span>'+esc(value)+'</span></div>';
+  }).join('');
+  if(target){const targetNode=$('viewer-target-line');if(targetNode)targetNode.scrollIntoView({block:'center'});}
+ }catch(error){
+  $('viewerLine').textContent='Unable to open file';
+  $('viewerCode').innerHTML='<div class="viewer-error">'+esc(error.message)+'</div>';
+ }
+}
+function closeFileViewer(){
+ $('fileViewer').classList.remove('visible');
+ if(returnToEntity){
+  returnToEntity.open=true;
+  const group=returnToEntity.closest('.group');
+  if(group)group.open=true;
+  returnToEntity.scrollIntoView({behavior:'instant',block:'center'});
+ }
+ returnToEntity=null;
+}
+$('viewerBack').addEventListener('click',closeFileViewer);
+document.addEventListener('click',e=>{
  const jump=e.target.closest('[data-jump-letter]');
  if(jump){e.preventDefault();const heading=$('naming-letter-'+jump.getAttribute('data-jump-letter'));if(heading)heading.scrollIntoView({behavior:'smooth',block:'start'});return;}
- const button=e.target.closest('[data-copy]');
- if(!button)return;
- const value=button.getAttribute('data-copy');
- try{
-  await navigator.clipboard.writeText(value);
-  button.textContent='Copied';
-  window.setTimeout(()=>button.textContent='Copy location',1200);
- }catch(err){$('status').textContent='Clipboard unavailable. Location: '+value;}
+ const file=e.target.closest('[data-open-file]');
+ if(file){openFile(file.getAttribute('data-open-file'),file.getAttribute('data-line'));return;}
 });
 </script>
 </body>
