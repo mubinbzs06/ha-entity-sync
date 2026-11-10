@@ -32,7 +32,9 @@ main{padding:28px clamp(16px,3vw,42px);min-width:0}.top{display:flex;align-items
 .alphabet-rail{position:fixed;right:8px;top:50%;transform:translateY(-50%);z-index:30;display:none;flex-direction:column;gap:2px;padding:7px 5px;background:#0c141beF;border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 24px #0006}
 .alphabet-rail.visible{display:flex}
 .alphabet-rail button{display:block;min-width:22px;text-align:center;color:var(--muted);font-size:10px;line-height:1.35;font-weight:750;padding:3px 4px;border:0;background:transparent;border-radius:4px;touch-action:manipulation;pointer-events:auto}
-.alphabet-rail button:hover,.alphabet-rail button:focus{background:var(--panel2);color:var(--accent);outline:1px solid var(--accent)}
+.alphabet-rail{touch-action:none;user-select:none;-webkit-user-select:none}
+.alphabet-rail button{touch-action:none;user-select:none;-webkit-user-select:none}
+.alphabet-rail button:hover,.alphabet-rail button:focus,.alphabet-rail button.active{background:var(--panel2);color:var(--accent);outline:1px solid var(--accent)}
 .letter-heading{position:relative;scroll-margin-top:82px;z-index:5;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:5px 10px;margin:15px 0 7px;color:var(--accent);font-size:12px;font-weight:800}
 .finding{scroll-margin-top:75px}
 #backToTop{position:fixed;left:14px;bottom:18px;z-index:35;border:1px solid var(--line);background:#202e39ed;color:var(--text);border-radius:999px;padding:10px 13px;box-shadow:0 6px 20px #0006;display:none;font-size:12px;font-weight:700}
@@ -151,6 +153,7 @@ function renderNaming(){
  ).join('');
  rail.innerHTML=letters.map(letter=>'<button type="button" data-jump-letter="'+esc(letter)+'" aria-label="Jump to '+esc(letter)+'">'+esc(letter)+'</button>').join('');
  rail.classList.toggle('visible',rows.length>=12);
+ requestAnimationFrame(syncActiveLetter);
 }
 function render(){
  if(!report)return;
@@ -195,9 +198,85 @@ window.addEventListener('pagehide',clearSession);
 window.addEventListener('pageshow',event=>{if(event.persisted)clearSession();runScan();});
 $('filter').addEventListener('input',render);
 $('backToTop').addEventListener('click',()=>$('overview').scrollIntoView({behavior:'smooth',block:'start'}));
+function syncActiveLetter(){
+ const rail=$('alphabetRail');
+ const buttons=[...rail.querySelectorAll('[data-jump-letter]')];
+ if(!buttons.length)return;
+ const results=$('namingResults');
+ const bounds=results.getBoundingClientRect();
+ if(bounds.bottom<82||bounds.top>window.innerHeight){
+  buttons.forEach(button=>{button.classList.remove('active');button.removeAttribute('aria-current');});
+  return;
+ }
+ const headings=[...results.querySelectorAll('.letter-heading')];
+ let current=null;
+ for(const heading of headings){
+  if(heading.getBoundingClientRect().top<=120)current=heading;
+  else break;
+ }
+ if(!current&&headings.length&&headings[0].getBoundingClientRect().top<window.innerHeight)current=headings[0];
+ const letter=current?current.id.slice('naming-letter-'.length):'';
+ buttons.forEach(button=>{
+  const active=button.getAttribute('data-jump-letter')===letter;
+  button.classList.toggle('active',active);
+  if(active)button.setAttribute('aria-current','location');
+  else button.removeAttribute('aria-current');
+ });
+}
+let activeSyncQueued=false;
+function queueActiveLetterSync(){
+ if(activeSyncQueued)return;
+ activeSyncQueued=true;
+ requestAnimationFrame(()=>{activeSyncQueued=false;syncActiveLetter();});
+}
 window.addEventListener('scroll',()=>{
  $('backToTop').classList.toggle('visible',window.scrollY>500);
+ queueActiveLetterSync();
 },{passive:true});
+document.addEventListener('scroll',queueActiveLetterSync,true);
+window.addEventListener('resize',queueActiveLetterSync,{passive:true});
+
+const alphabetRail=$('alphabetRail');
+let railPointerId=null;
+function jumpToLetter(letter,behavior='smooth'){
+ const heading=$('naming-letter-'+letter);
+ if(heading){
+  const section=$('namingSection');
+  if(section&&!section.open)section.open=true;
+  heading.scrollIntoView({behavior,block:'start'});
+  queueActiveLetterSync();
+ }
+}
+function railLetterAt(y){
+ const buttons=[...alphabetRail.querySelectorAll('[data-jump-letter]')];
+ if(!buttons.length)return null;
+ return buttons.reduce((best,button)=>{
+  const rect=button.getBoundingClientRect();
+  const distance=Math.abs(y-(rect.top+rect.height/2));
+  return !best||distance<best.distance?{button,distance}:best;
+ },null)?.button||null;
+}
+alphabetRail.addEventListener('pointerdown',event=>{
+ const button=event.target.closest('[data-jump-letter]');
+ if(!button)return;
+ railPointerId=event.pointerId;
+ alphabetRail.setPointerCapture(event.pointerId);
+ jumpToLetter(button.getAttribute('data-jump-letter'),'auto');
+ event.preventDefault();
+});
+alphabetRail.addEventListener('pointermove',event=>{
+ if(railPointerId!==event.pointerId)return;
+ const button=railLetterAt(event.clientY);
+ if(button)jumpToLetter(button.getAttribute('data-jump-letter'),'auto');
+ event.preventDefault();
+});
+function endRailDrag(event){
+ if(railPointerId!==event.pointerId)return;
+ railPointerId=null;
+ if(alphabetRail.hasPointerCapture(event.pointerId))alphabetRail.releasePointerCapture(event.pointerId);
+}
+alphabetRail.addEventListener('pointerup',endRailDrag);
+alphabetRail.addEventListener('pointercancel',endRailDrag);
 $('expandAll').onclick=()=>document.querySelectorAll('.group,.candidate').forEach(x=>x.open=true);
 $('collapseAll').onclick=()=>document.querySelectorAll('.group,.entity,.candidate').forEach(x=>x.open=false);
 let returnToEntity=null;
@@ -240,7 +319,7 @@ document.addEventListener('click',e=>{
  const stat=e.target.closest('[data-scroll-to]');
  if(stat){const section=$(stat.getAttribute('data-scroll-to'));if(section){section.open=true;section.scrollIntoView({behavior:'smooth',block:'start'});}return;}
  const jump=e.target.closest('[data-jump-letter]');
- if(jump){e.preventDefault();$('namingSection').open=true;const heading=$('naming-letter-'+jump.getAttribute('data-jump-letter'));if(heading)heading.scrollIntoView({behavior:'smooth',block:'start'});return;}
+ if(jump){e.preventDefault();jumpToLetter(jump.getAttribute('data-jump-letter'));return;}
  const file=e.target.closest('[data-open-file]');
  if(file){openFile(file.getAttribute('data-open-file'),file.getAttribute('data-line'),file.closest('.entity, .candidate'));return;}
 });
