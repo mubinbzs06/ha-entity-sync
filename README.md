@@ -4,7 +4,7 @@ A local Home Assistant OS app for **read-only entity reference auditing**.
 
 ## Current build
 
-**Build 2.9 · Version 0.2.10** scans user-maintained Home Assistant configuration, Lovelace dashboards, and a small allowlist of historical storage records.
+**Build 2.10 · Version 0.2.11** scans user-maintained Home Assistant configuration, Lovelace dashboards, and a small allowlist of historical storage records.
 
 It excludes unrelated Home Assistant internals, integration/add-on implementation folders, backups, archives, databases, logs, secrets, and runtime data.
 
@@ -53,9 +53,9 @@ The app mounts Home Assistant configuration at `/homeassistant` **read-only**. I
 - Custom domains and unusual reference syntax may be missed.
 - Dependencies held only in integrations, databases, or remote systems are outside this file scan.
 - The viewer only serves files approved by the scanner's safe file scope.
-- Persistent entity database, scan history, confirmed stale validation, impact previews, verified backup/rollback, and approved repair are future work.
+- Persistent entity database, scan history, and the backup-gated Apply workflow remain future work.
 
-**Golden rule:** no future modification without a verified backup, explicit approval, and a usable rollback path.
+**Golden rule:** no change without a specific user-approved plan, a verified Supervisor backup, recoverable per-file backups, pre-apply validation, post-apply verification, and a usable rollback path.
 
 
 ## Scan performance, counts, and exports (0.2.10)
@@ -65,3 +65,13 @@ The app mounts Home Assistant configuration at `/homeassistant` **read-only**. I
 - Counts distinguish registered entities, entities with active references, historical-only entities, needs-review-only entities, unreferenced entities, reference records (entity/file/category groups), and reference hits (occurrences).
 - Export JSON or CSV for active dependencies, needs-review references, and stale candidates. Exports are generated in the browser and do not modify Home Assistant files.
 - Stale candidates with active/dashboard evidence rank above historical-only candidates. The built-in `conversation` domain is excluded from stale-candidate detection to reduce false positives.
+
+
+## Read-only repair planning (0.2.11)
+
+- **Re-add recovery candidates** compare unavailable/orphaned original IDs with live suffixed IDs such as `sensor.foo_2`. A candidate is shown only when live state and device/integration identity evidence agree. High-confidence matches use the same device ID or config entry; matching integration plus device/entity name is medium confidence.
+- Each re-add plan lists the original and replacement IDs, their states, identity evidence, and every active dashboard/YAML reference to the original ID. Those existing references are expected to resolve again after a future approved registry repair; historical restore-state and trace records are not included in repair plans.
+- **Clean-name suggestions** collapse an immediately repeated name sequence and may remove a leading integration prefix only when registry metadata confirms it. Each proposal shows collision status, confidence, reason, and exact active-reference line previews.
+- Collision proposals are blocked from being considered safe. No entity IDs, registry entries, dashboards, YAML files, or packages are changed.
+- The add-on requests Home Assistant API access only to read live entity states. The configuration mount remains read-only; .storage is never edited.
+- Applying a plan, obtaining Supervisor backups, registry updates, Lovelace API updates, YAML writes, and rollback are not implemented in this build. They remain a separate future phase.
