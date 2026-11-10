@@ -56,6 +56,20 @@ def candidate_files():
                 continue
 
 
+def classify_reference(path):
+    """Classify a reference by the role of the file containing it."""
+    rel = path.as_posix()
+    name = path.name.lower()
+
+    if rel == ".storage/core.restore_state" or name.startswith("trace.") or rel.startswith(".storage/trace"):
+        return "Historical"
+    if rel.startswith(".storage/lovelace.") or rel.startswith(".storage/lovelace/"):
+        return "Dashboard"
+    if path.suffix.lower() in {".yaml", ".yml", ".jinja", ".jinja2"}:
+        return "Active configuration"
+    return "Needs review"
+
+
 def scan():
     if not REGISTRY.exists():
         return {"ok": False, "error": "Entity registry not found at .storage/core.entity_registry"}
@@ -84,12 +98,15 @@ def scan():
             results.append({
                 "entity_id": entity_id,
                 "file": rel,
+                "category": classify_reference(Path(rel)),
                 "count": len(line_numbers),
                 "lines": line_numbers[:30]
             })
 
     results.sort(key=lambda item: (item["entity_id"], item["file"]))
     by_entity = {item["entity_id"] for item in results}
+    category_hits = {category: sum(item["count"] for item in results if item["category"] == category)
+                     for category in ("Active configuration", "Dashboard", "Historical", "Needs review")}
     return {
         "ok": True,
         "read_only": True,
@@ -97,6 +114,7 @@ def scan():
         "files_scanned": scanned,
         "entities_with_references": len(by_entity),
         "reference_hits": sum(item["count"] for item in results),
+        "category_hits": category_hits,
         "results": results,
     }
 
