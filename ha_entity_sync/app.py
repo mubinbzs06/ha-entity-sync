@@ -11,15 +11,27 @@ from urllib.parse import urlparse
 CONFIG = Path("/homeassistant")
 REGISTRY = CONFIG / ".storage" / "core.entity_registry"
 MAX_FILE_BYTES = 5 * 1024 * 1024
+# Search user-maintained configuration, not HA internals or app implementation.
+# Dashboard storage is the one deliberate exception inside .storage.
 SKIP_DIRS = {
     ".git", "backups", "backup", "deps", "tts", "__pycache__",
-    "www", "media", "share", "blueprints_cache"
+    "www", "media", "share", "blueprints_cache", "custom_components",
+    "node_modules", "appdaemon", "pyscript", "esphome", "zigbee2mqtt",
+    "node-red", "nodered", "addons", "add-ons", "logs", "log"
 }
 SKIP_NAMES = {
     "secrets.yaml", "secrets.yml", "home-assistant_v2.db",
     "home-assistant_v2.db-wal", "home-assistant_v2.db-shm",
     "core.config_entries"
 }
+BACKUP_NAME_RE = re.compile(
+    r"(^|[._ -])(backup|backups|archive|archived|snapshot|snapshots)([._ -]|$)",
+    re.IGNORECASE
+)
+BACKUP_SUFFIXES = (
+    ".tar", ".tar.gz", ".tgz", ".zip", ".7z", ".rar", ".gz",
+    ".bak", ".old", ".orig", ".tmp", ".db", ".db-wal", ".db-shm"
+)
 ALLOWED_SUFFIXES = {
     ".yaml", ".yml", ".json", ".json5", ".jinja", ".jinja2",
     ".py", ".js", ".ts", ".md"
@@ -52,17 +64,57 @@ def load_registry():
     return clean
 
 
+def is_backup_path(path):
+    """Reject backup/archive names and archive/database file formats anywhere."""
+    for part in path.parts:
+        if BACKUP_NAME_RE.search(part):
+            return True
+        if part.lower().endswith(BACKUP_SUFFIXES):
+            return True
+    return False
+
+
 def candidate_files():
     for root, dirs, names in os.walk(CONFIG):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith("backup")]
+        root_path = Path(root)
+        try:
+            relative_root = root_path.relative_to(CONFIG)
+        except ValueError:
+            dirs[:] = []
+            continue
+
+        # Never recurse into Home Assistant internal storage. Only user dashboards
+        # stored by the Lovelace UI are useful references for this audit.
+        if relative_root == Path(".storage"):
+            dirs[:] = []
+            for name in names:
+                if not name.startswith("lovelace"):
+                    continue
+                path = root_path / name
+                if is_backup_path(path) or name in SKIP_NAMES:
+                    continue
+                try:
+                    if path.is_file() and path.stat().st_size <= MAX_FILE_BYTES:
+                        yield path
+                except OSError:
+                    continue
+            continue
+
+        dirs[:] = [
+            d for d in dirs
+            if d.lower() not in SKIP_DIRS
+            and not is_backup_path(relative_root / d)
+        ]
+
         for name in names:
-            if name in SKIP_NAMES or name.lower().startswith(("secret", "auth", "token")):
-                continue
-            path = Path(root) / name
+            path = root_path / name
             rel = path.relative_to(CONFIG)
-            if path.suffix.lower() not in ALLOWED_SUFFIXES and rel.parts[0] != ".storage":
+            lower_name = name.lower()
+            if name in SKIP_NAMES or lower_name.startswith(("secret", "auth", "token")):
                 continue
-            if path == REGISTRY:
+            if is_backup_path(rel):
+                continue
+            if path.suffix.lower() not in ALLOWED_SUFFIXES:
                 continue
             try:
                 if path.is_file() and path.stat().st_size <= MAX_FILE_BYTES:
@@ -74,9 +126,7 @@ def candidate_files():
 def classify_reference(path):
     rel = path.as_posix()
     name = path.name.lower()
-    if rel == ".storage/core.restore_state" or name.startswith("trace.") or rel.startswith(".storage/trace"):
-        return "Historical"
-    if rel.startswith(".storage/lovelace.") or rel.startswith(".storage/lovelace/"):
+    if rel.startswith(".storage/lovelace"):
         return "Dashboard"
     if path.suffix.lower() in {".yaml", ".yml", ".jinja", ".jinja2"}:
         return "Active configuration"
