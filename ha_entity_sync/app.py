@@ -695,6 +695,8 @@ def scan():
                         "reason": (
                             "Historical record contains an entity-like ID absent from the current registry."
                             if category == "Historical"
+                            else "Dashboard contains an entity-like ID absent from the current registry; verify the reference and any replacement."
+                            if category == "Dashboard"
                             else "Entity-like ID in an entity-reference context, but absent from the current registry."
                         )
                     })
