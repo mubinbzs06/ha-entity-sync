@@ -1,13 +1,14 @@
 name: HA Entity Sync
-version: "0.2.10"
+version: "0.2.11"
 slug: ha_entity_sync
-description: Read-only audit of Home Assistant entity references and rename impact
+description: Read-only entity audit with re-add detection and repair planning
 url: https://github.com/mubinbzs06/ha-entity-sync
 arch:
   - aarch64
   - amd64
   - armv7
 startup: application
+homeassistant_api: true
 boot: auto
 init: false
 ingress: true
