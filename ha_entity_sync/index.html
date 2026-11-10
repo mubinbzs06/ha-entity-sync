@@ -163,7 +163,7 @@ function clearSession(){
  $('filter').value='';
 }
 window.addEventListener('pagehide',clearSession);
-window.addEventListener('pageshow',event=>{if(event.persisted)clearSession();runScan();},{once:true});
+window.addEventListener('pageshow',event=>{if(event.persisted)clearSession();runScan();});
 $('filter').addEventListener('input',render);
 $('backToTop').addEventListener('click',()=>window.scrollTo({top:0,behavior:'smooth'}));
 window.addEventListener('scroll',()=>{
