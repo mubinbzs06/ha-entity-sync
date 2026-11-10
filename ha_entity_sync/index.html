@@ -117,7 +117,7 @@ main{padding:28px clamp(16px,3vw,42px);min-width:0}.top{display:flex;align-items
     <div class="section-head"><div><h2>Entity references</h2><p>Groups stay folded until you open them. Expand an entity to see its exact file locations.</p></div></div>
     <div class="search-sticky"><input class="search" id="filter" type="search" placeholder="Search entity IDs or file paths…" aria-label="Search entity IDs or file paths"></div>
     <div class="toolbar"><button class="quiet" id="expandAll" type="button">Expand groups</button><button class="quiet" id="collapseAll" type="button">Collapse all</button></div>
-    <section id="results"><div class="empty">No scan results yet.</div></section><details class="audit-section" id="readdedSection"><summary class="audit-toggle">Re-added device recovery</summary><p class="intro">Each action rechecks identity and live state, creates and verifies a Home Assistant backup, then restores the live replacement to the original ID. The old entry is quarantined so recovery can be undone. No dashboard or YAML files are edited.</p><div id="readdedResults"><div class="empty">Run a scan to check for re-added devices.</div></div></details><details class="audit-section" id="recoveryHistorySection"><summary class="audit-toggle">Recovery history and rollback</summary><p class="intro">Completed actions retain their backup reference and a rollback entry. Undo creates and verifies another backup before reversing the registry rename.</p><div id="recoveryHistoryResults"><div class="empty">No recovery actions recorded.</div></div></details><details class="audit-section" id="cleanNamesSection"><summary class="audit-toggle">Clean-name suggestions</summary><p class="intro">Shorter entity IDs with collision checks, confidence, and exact reference-line previews. Suggestions never rename entities.</p><div id="cleanNamesResults"><div class="empty">Run a scan to review naming suggestions.</div></div></details><details class="audit-section" id="staleSection"><summary class="audit-toggle">Potentially stale references</summary><p class="intro">Entity-like IDs found in reference contexts but absent from the current registry. These need human verification.</p><div id="staleResults"><div class="empty">Run a scan to check for candidates.</div></div></details><details class="audit-section" id="namingSection"><summary class="audit-toggle">Naming information</summary><p class="intro">Numeric suffixes and repeated words are informational observations. They may be intentional; no rename is recommended or performed.</p><div id="namingResults"><div class="empty">Run a scan to check entity names.</div></div></details>
+    <section id="results"><div class="empty">No scan results yet.</div></section><details class="audit-section" id="dashboardHealthSection"><summary class="audit-toggle">Dashboard health</summary><p class="intro">Every discovered dashboard entity reference is checked against the entity registry and live Home Assistant states. A missing ID is not automatically assigned a replacement. Use the live preview to inspect the affected dashboard.</p><div id="dashboardHealthResults"><div class="empty">Run a scan to check dashboard references.</div></div></details><details class="audit-section" id="readdedSection"><summary class="audit-toggle">Re-added device recovery</summary><p class="intro">Each action rechecks identity and live state, creates and verifies a Home Assistant backup, then restores the live replacement to the original ID. The old entry is quarantined so recovery can be undone. No dashboard or YAML files are edited.</p><div id="readdedResults"><div class="empty">Run a scan to check for re-added devices.</div></div></details><details class="audit-section" id="recoveryHistorySection"><summary class="audit-toggle">Recovery history and rollback</summary><p class="intro">Completed actions retain their backup reference and a rollback entry. Undo creates and verifies another backup before reversing the registry rename.</p><div id="recoveryHistoryResults"><div class="empty">No recovery actions recorded.</div></div></details><details class="audit-section" id="cleanNamesSection"><summary class="audit-toggle">Clean-name suggestions</summary><p class="intro">Shorter entity IDs with collision checks, confidence, and exact reference-line previews. Suggestions never rename entities.</p><div id="cleanNamesResults"><div class="empty">Run a scan to review naming suggestions.</div></div></details><details class="audit-section" id="staleSection"><summary class="audit-toggle">Potentially stale references</summary><p class="intro">Entity-like IDs found in reference contexts but absent from the current registry. These need human verification.</p><div id="staleResults"><div class="empty">Run a scan to check for candidates.</div></div></details><details class="audit-section" id="namingSection"><summary class="audit-toggle">Naming information</summary><p class="intro">Numeric suffixes and repeated words are informational observations. They may be intentional; no rename is recommended or performed.</p><div id="namingResults"><div class="empty">Run a scan to check entity names.</div></div></details>
   </section>
 </main>
 </div>
@@ -187,6 +187,19 @@ function groupedResults(){
    return '<details class="entity" data-entity-id="'+esc(x.id)+'"><summary><span class="entity-id">'+esc(x.id)+'</span><span class="count">'+x.refs.length+' file(s) · '+count+' reference(s)</span></summary><div class="entity-body">'+x.refs.map(evidenceHtml).join('')+'</div></details>';
   }).join('')+'</div></details>';
  }).join('');
+}
+function renderDashboardHealth(){
+ const rows=(report?.dashboard_health||[]).filter(x=>(x.entity_id+" "+x.file+" "+x.health_status+" "+(x.health_detail||"")).toLowerCase().includes($("filter").value.trim().toLowerCase()));
+ if(!rows.length){$("dashboardHealthResults").innerHTML=report?.dashboard_health_checked===false?'<div class="empty">Dashboard references were found, but live-state checking is unavailable. No availability claims can be made.</div>':'<div class="empty">No dashboard references match this search.</div>';return;}
+ const labels={available:"Available",unavailable:"Unavailable",unknown:"Unknown",missing:"Missing from registry and live states",no_live_state:"Registered · no live state",not_checked:"Not checked"};
+ const colors={available:"var(--green)",unavailable:"var(--red)",unknown:"var(--amber)",missing:"var(--red)",no_live_state:"var(--amber)",not_checked:"var(--muted)"};
+ $("dashboardHealthResults").innerHTML=rows.map(x=>
+  '<div class="finding"><div class="finding-head"><span class="finding-title">'+esc(x.entity_id)+'</span><span class="count" style="color:'+(colors[x.health_status]||"var(--muted)")+'">'+esc(labels[x.health_status]||x.health_status)+'</span></div>'+
+  '<p>'+esc(x.health_detail)+'</p><p>Registry: '+esc(x.registry_status)+' · Live state: '+esc(x.live_state??"not present") +'</p>'+
+  usageEvidenceHtml(x,x.entity_id)+
+  (x.dashboard_url?'<button class="dashboard-preview-button" type="button" data-dashboard-url="'+esc(x.dashboard_url)+'">Preview dashboard</button>':'<p class="recovery-note">Dashboard preview route is unavailable.</p>')+
+  '</div>'
+ ).join("");
 }
 function renderStale(){
  const q=$('filter').value.trim().toLowerCase();
@@ -317,7 +330,7 @@ function render(){
  if(!report)return;
  const html=groupedResults();
  $('results').innerHTML=html||'<div class="empty">No matching registered references.</div>';
- renderStale();renderReadded();renderRecoveryHistory();renderCleanNames();renderNaming();
+ renderDashboardHealth();renderStale();renderReadded();renderRecoveryHistory();renderCleanNames();renderNaming();
 }
 async function runScan(force=false){
  report=null;
@@ -344,6 +357,7 @@ async function runScan(force=false){
    ['Reference records (entity/file groups)',report.reference_records],
    ['Reference hits (ID occurrences)',report.reference_hits],
    ['Files scanned',report.files_scanned],
+   ['Dashboard references',report.dashboard_health_count||0,'dashboardHealthSection'],
    ['Stale candidates',report.potentially_stale_entities||0,'staleSection'],
    ['Re-add pairs',report.readded_pairs_count||0,'readdedSection'],
    ['Clean-name suggestions',report.clean_name_suggestions_count||0,'cleanNamesSection'],
@@ -378,7 +392,7 @@ $('rescanButton').addEventListener('click',()=>runScan(true));
 function exportData(){
  const active=(report?.results||[]).filter(item=>item.category==='Active configuration'||item.category==='Dashboard');
  const review=(report?.results||[]).filter(item=>item.category==='Needs review');
- return {exported_at:new Date().toISOString(),last_scanned_at:report?.last_scanned_at||null,read_only:true,active_dependencies:active,needs_review_references:review,stale_candidates:report?.potentially_stale||[],readded_pairs:report?.readded_pairs||[],clean_name_suggestions:report?.clean_name_suggestions||[]};
+ return {exported_at:new Date().toISOString(),last_scanned_at:report?.last_scanned_at||null,read_only:true,dashboard_health:report?.dashboard_health||[],dashboard_health_checked:report?.dashboard_health_checked??false,active_dependencies:active,needs_review_references:review,stale_candidates:report?.potentially_stale||[],readded_pairs:report?.readded_pairs||[],clean_name_suggestions:report?.clean_name_suggestions||[]};
 }
 function downloadFile(name,type,content){
  const blob=new Blob([content],{type});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
