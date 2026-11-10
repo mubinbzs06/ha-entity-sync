@@ -127,7 +127,7 @@ class ScannerTests(unittest.TestCase):
 
     def test_file_viewer_reads_only_scanner_approved_files(self):
         (self.root / "automations.yaml").write_text(
-            "first line\\nentity_id: sensor.known\\n", encoding="utf-8"
+            "first line\nentity_id: sensor.known\n", encoding="utf-8"
         )
         (self.root / "backups").mkdir()
         (self.root / "backups" / "old.yaml").write_text(
