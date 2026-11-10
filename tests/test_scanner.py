@@ -85,7 +85,7 @@ class ScannerTests(unittest.TestCase):
 
     def test_reference_evidence_keeps_full_line_for_expansion(self):
         full_line = "  entity_id: sensor.known # " + ("extra-context " * 60)
-        (self.root / "automations.yaml").write_text(full_line + "\\n", encoding="utf-8")
+        (self.root / "automations.yaml").write_text(full_line + "\n", encoding="utf-8")
         report = app.scan()
         reference = next(
             item for item in report["results"]
