@@ -256,7 +256,7 @@ async function runScan(force=false){
   const nextReport=await response.json();
   if(!nextReport.ok){$('status').textContent=nextReport.error;return;}
   report=nextReport;
-  $('status').textContent='Scan complete. No Home Assistant files were changed. Candidate IDs require review.';
+  const warnings=report.scan_warnings||[]; $('status').textContent='Scan complete. No Home Assistant files were changed. Candidate IDs require review.'+(warnings.length?' Warning: '+warnings.join(' '):'');
   $('stats').innerHTML=[
    ['Registered entities',report.registered_entities],
    ['Entities with any references',report.entities_with_any_references],
