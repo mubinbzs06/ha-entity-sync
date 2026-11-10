@@ -123,6 +123,33 @@ def candidate_files():
                 continue
 
 
+
+def read_scoped_file(requested):
+    """Read one scanner-eligible file without allowing path traversal or symlink escape."""
+    relative = Path(requested)
+    if not requested or relative.is_absolute() or ".." in relative.parts:
+        raise ValueError("Invalid file path")
+
+    allowed = {
+        path.relative_to(CONFIG).as_posix(): path
+        for path in candidate_files()
+    }
+    target = allowed.get(relative.as_posix())
+    if target is None:
+        raise FileNotFoundError("File is not in the read-only audit scope")
+
+    resolved_config = CONFIG.resolve()
+    resolved_target = target.resolve(strict=True)
+    if not resolved_target.is_relative_to(resolved_config):
+        raise FileNotFoundError("File is outside the Home Assistant configuration")
+    if not resolved_target.is_file() or resolved_target.stat().st_size > MAX_FILE_BYTES:
+        raise FileNotFoundError("File is unavailable")
+
+    return {
+        "path": relative.as_posix(),
+        "content": resolved_target.read_text(encoding="utf-8")
+    }
+
 def classify_reference(path):
     rel = path.as_posix()
     name = path.name.lower()
@@ -262,36 +289,15 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(payload)
         elif route == "/api/file":
             requested = parse_qs(urlparse(self.path).query).get("path", [""])[0]
-            relative = Path(requested)
-            if not requested or relative.is_absolute() or ".." in relative.parts:
-                self.send_error(400, "Invalid file path")
-                return
-            allowed = {
-                path.relative_to(CONFIG).as_posix(): path
-                for path in candidate_files()
-            }
-            target = allowed.get(relative.as_posix())
-            if target is None:
-                self.send_error(404, "File is not in the read-only audit scope")
-                return
             try:
-                resolved_config = CONFIG.resolve()
-                resolved_target = target.resolve(strict=True)
-                if not resolved_target.is_relative_to(resolved_config):
-                    self.send_error(404, "File is outside the Home Assistant configuration")
-                    return
-                if not resolved_target.is_file() or resolved_target.stat().st_size > MAX_FILE_BYTES:
-                    self.send_error(404, "File is unavailable")
-                    return
-                content = resolved_target.read_text(encoding="utf-8")
-            except (OSError, UnicodeError):
-                self.send_error(404, "File could not be read as text")
+                file_data = read_scoped_file(requested)
+            except ValueError as err:
+                self.send_error(400, str(err))
                 return
-            payload = json.dumps({
-                "ok": True,
-                "path": relative.as_posix(),
-                "content": content
-            }).encode()
+            except (OSError, UnicodeError) as err:
+                self.send_error(404, str(err))
+                return
+            payload = json.dumps({"ok": True, **file_data}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(payload)))
