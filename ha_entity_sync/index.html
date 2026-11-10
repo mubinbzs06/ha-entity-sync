@@ -52,6 +52,24 @@ main{padding:28px clamp(16px,3vw,42px);min-width:0}.top{display:flex;align-items
 .viewer-error{padding:20px;color:var(--red)}
 @media(max-width:850px){.shell{grid-template-columns:1fr}aside{display:none}main{padding:20px 16px 36px}.mobile-brand{display:block;color:var(--muted);font-size:12px;margin-bottom:16px}.stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.stat{padding:14px}.top{align-items:flex-start}.primary{width:100%}.top-actions{width:100%}.section-head{align-items:flex-start;flex-direction:column} .toolbar{flex-wrap:wrap}.search-sticky{top:0}.alphabet-rail{right:3px;padding:5px 3px}.alphabet-rail button{font-size:9px;padding:3px 3px}#backToTop{left:8px;bottom:12px}}
 @media(max-width:390px){.group>summary{padding:12px}.group-meta{font-size:11px}.entity>summary{align-items:flex-start;flex-wrap:wrap}.count{margin-left:0}.stats{gap:7px}}
+
+/* Build 2.9: compact usage evidence, category identity, and exact-entity highlighting */
+.usage-ref{margin-top:9px;border:1px solid var(--line);border-radius:9px;padding:10px;background:#101a22}
+.usage-file{font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere;color:var(--text);font-weight:700;margin-bottom:7px}
+.usage-line{display:flex;align-items:flex-start;gap:9px;padding:6px 0;border-top:1px solid #263640}
+.usage-line:first-of-type{border-top:0}
+.line-link{flex:none;border:1px solid var(--line);background:var(--panel2);color:var(--accent);border-radius:6px;padding:3px 7px;font-size:11px;font-weight:750}
+.usage-preview{min-width:0;flex:1;font:12px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;color:#dce7ed;overflow-wrap:anywhere;white-space:pre-wrap}
+.usage-full{margin:5px 0 0 0;color:var(--muted);font-size:11px}
+.usage-full summary{cursor:pointer;color:var(--accent);font-size:11px}
+.usage-full code{display:block;margin-top:6px;padding:8px;background:#0b1319;border-radius:6px;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;color:#dce7ed}
+.entity-match{background:#66501e;color:#fff0b8;border:1px solid #b88a32;border-radius:3px;padding:0 1px;font-weight:800}
+.usage-category{display:inline-block;border-radius:20px;padding:2px 8px;font-size:10px;font-weight:750;margin-bottom:7px;border:1px solid transparent}
+.usage-category.dashboard{background:#17314b;color:#9bcaff;border-color:#315d83}
+.usage-category.active-configuration{background:#17382d;color:#9ce1bb;border-color:#347354}
+.usage-category.needs-review{background:#3b3019;color:#f0ce83;border-color:#81652e}
+.usage-category.historical{background:#402326;color:#ffaaaa;border-color:#87464b}
+.code-line .entity-match{padding:0 2px}
 </style>
 </head>
 <body>
@@ -106,10 +124,38 @@ function evidenceHtml(r){
  return matches.map(m=>'<div class="evidence"><div class="evidence-head"><span class="path">'+esc(r.file)+'</span><span class="line">Line '+esc(m.line)+'</span><button class="copy" type="button" data-open-file="'+esc(r.file)+'" data-line="'+esc(m.line)+'">Open file ↗</button></div><code class="snippet">'+esc(m.text||'')+'</code></div>').join('') ||
  '<div class="evidence"><div class="evidence-head"><span class="path">'+esc(r.file)+'</span><button class="copy" type="button" data-open-file="'+esc(r.file)+'" data-line="'+esc((r.lines||[])[0]||1)+'">Open file ↗</button></div><div class="line">Line(s): '+esc((r.lines||[]).join(', '))+'</div></div>';
 }
-function usageSection(title,items){
+function highlightEntity(text,entityId){
+ const value=String(text??'');
+ if(!entityId)return esc(value);
+ const at=value.indexOf(entityId);
+ if(at<0)return esc(value);
+ return esc(value.slice(0,at))+'<mark class="entity-match">'+esc(entityId)+'</mark>'+highlightEntity(value.slice(at+entityId.length),entityId);
+}
+function categoryClass(category){
+ return String(category||'needs-review').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+}
+function usageEvidenceHtml(item,entityId){
+ const matches=item.matches||[];
+ const lines=matches.length?matches:[{line:(item.lines||[])[0]||1,text:''}];
+ return '<div class="usage-ref"><div class="usage-file">'+esc(item.file)+'</div><span class="usage-category '+categoryClass(item.category)+'">'+esc(item.category)+'</span>'+
+ lines.map(match=>'<div class="usage-line"><button class="line-link" type="button" data-open-file="'+esc(item.file)+'" data-line="'+esc(match.line)+'" data-entity-id="'+esc(entityId)+'">Line '+esc(match.line)+' ↗</button><div class="usage-preview">'+highlightEntity(match.text||'',entityId)+
+ (match.text?'<details class="usage-full"><summary>View full reference</summary><code>'+highlightEntity(match.text,entityId)+'</code></details>':'')+'</div></div>').join('')+'</div>';
+}
+function usageSection(title,items,entityId){
  if(!items.length)return '';
- const hits=items.reduce((sum,item)=>sum+(item.count||0),0);
- return '<div class="finding-usage"><div class="usage-title">'+esc(title)+' · '+items.length+' file(s) · '+hits+' reference(s)</div>'+items.map(item=>'<div class="usage-ref"><span class="pill">'+esc(item.category)+'</span>'+evidenceHtml(item)+'</div>').join('')+'</div>';
+ const grouped=new Map();
+ for(const item of items){
+  const key=item.file+'|'+item.category;
+  if(!grouped.has(key))grouped.set(key,item);
+  else{
+   const current=grouped.get(key);
+   current.matches=[...(current.matches||[]),...(item.matches||[])];
+   current.count=(current.count||0)+(item.count||0);
+  }
+ }
+ const files=[...grouped.values()];
+ const hits=files.reduce((sum,item)=>sum+(item.count||0),0);
+ return '<div class="finding-usage"><div class="usage-title">'+esc(title)+' · '+files.length+' file(s) · '+hits+' reference(s)</div>'+files.map(item=>usageEvidenceHtml(item,entityId)).join('')+'</div>';
 }
 function groupedResults(){
  const q=$('filter').value.trim().toLowerCase();
@@ -158,7 +204,7 @@ function renderNaming(){
    const usage=x.usage||[];
    const active=usage.filter(r=>r.category!=='Historical');
    const historical=usage.filter(r=>r.category==='Historical');
-   return '<div class="finding"><div class="finding-head"><span class="finding-title">'+esc(x.entity_id)+'</span><span class="count">'+x.issues.length+' finding(s)</span></div>'+(x.name?'<p>Friendly name: '+esc(x.name)+'</p>':'')+x.issues.map(i=>'<p><b>'+esc(i.type)+':</b> '+esc(i.detail)+(i.matching_base?' Matching base entity: '+esc(i.matching_base):'')+'</p>').join('')+(active.length||historical.length?usageSection('Active usage',active)+usageSection('Historical usage',historical):'<p class="line">No references found in the current scan scope.</p>')+'</div>';
+   return '<div class="finding"><div class="finding-head"><span class="finding-title">'+esc(x.entity_id)+'</span><span class="count">'+x.issues.length+' finding(s)</span></div>'+(x.name?'<p>Friendly name: '+esc(x.name)+'</p>':'')+'<p>Entity source: '+(x.source?'<b>'+esc(x.source)+'</b>':'Not recorded in the entity registry')+'</p>'+x.issues.map(i=>'<p><b>'+esc(i.type)+':</b> '+esc(i.detail)+(i.matching_base?' Matching base entity: '+esc(i.matching_base):'')+'</p>').join('')+(active.length||historical.length?usageSection('Active usage',active,x.entity_id)+usageSection('Historical usage',historical,x.entity_id):'<p class="line">No references found in the current scan scope.</p>')+'</div>';
   }).join('')
  ).join('');
  rail.innerHTML=letters.map(letter=>'<button type="button" data-jump-letter="'+esc(letter)+'" aria-label="Jump to '+esc(letter)+'">'+esc(letter)+'</button>').join('');
@@ -290,7 +336,7 @@ alphabetRail.addEventListener('pointercancel',endRailDrag);
 $('expandAll').onclick=()=>document.querySelectorAll('.group,.candidate').forEach(x=>x.open=true);
 $('collapseAll').onclick=()=>document.querySelectorAll('.group,.entity,.candidate').forEach(x=>x.open=false);
 let returnToEntity=null;
-async function openFile(path,line,owner){
+async function openFile(path,line,owner,entityId){
  returnToEntity=owner;
  const base=window.location.pathname.endsWith('/')?window.location.pathname:window.location.pathname+'/';
  $('fileViewer').classList.add('visible');
@@ -307,7 +353,7 @@ async function openFile(path,line,owner){
   $('viewerLine').textContent='Read-only · '+lines.length+' lines'+(target?' · Reference at line '+target:'');
   $('viewerCode').innerHTML=lines.map((value,index)=>{
    const number=index+1;
-   return '<div class="code-line'+(number===target?' target':'')+'"'+(number===target?' id="viewer-target-line"':'')+'><span class="line-number">'+number+'</span><span>'+esc(value)+'</span></div>';
+   return '<div class="code-line'+(number===target?' target':'')+'"'+(number===target?' id="viewer-target-line"':'')+'><span class="line-number">'+number+'</span><span>'+(entityId?highlightEntity(value,entityId):esc(value))+'</span></div>';
   }).join('');
   if(target){const targetNode=$('viewer-target-line');if(targetNode)targetNode.scrollIntoView({block:'center'});}
  }catch(error){
@@ -333,7 +379,7 @@ document.addEventListener('click',e=>{
  const jump=e.target.closest('[data-jump-letter]');
  if(jump){e.preventDefault();jumpToLetter(jump.getAttribute('data-jump-letter'));return;}
  const file=e.target.closest('[data-open-file]');
- if(file){openFile(file.getAttribute('data-open-file'),file.getAttribute('data-line'),file.closest('.entity, .candidate, .finding'));return;}
+ if(file){openFile(file.getAttribute('data-open-file'),file.getAttribute('data-line'),file.closest('.entity, .candidate, .finding'),file.getAttribute('data-entity-id'));return;}
 });
 </script>
 </body>
