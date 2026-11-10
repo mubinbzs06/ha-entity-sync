@@ -116,7 +116,7 @@ main{padding:28px clamp(16px,3vw,42px);min-width:0}.top{display:flex;align-items
     <div class="section-head"><div><h2>Entity references</h2><p>Groups stay folded until you open them. Expand an entity to see its exact file locations.</p></div></div>
     <div class="search-sticky"><input class="search" id="filter" type="search" placeholder="Search entity IDs or file paths…" aria-label="Search entity IDs or file paths"></div>
     <div class="toolbar"><button class="quiet" id="expandAll" type="button">Expand groups</button><button class="quiet" id="collapseAll" type="button">Collapse all</button></div>
-    <section id="results"><div class="empty">No scan results yet.</div></section><details class="audit-section" id="staleSection"><summary class="audit-toggle">Potentially stale references</summary><p class="intro">Entity-like IDs found in reference contexts but absent from the current registry. These need human verification.</p><div id="staleResults"><div class="empty">Run a scan to check for candidates.</div></div></details><details class="audit-section" id="namingSection"><summary class="audit-toggle">Naming information</summary><p class="intro">Numeric suffixes and repeated words are informational observations. They may be intentional; no rename is recommended or performed.</p><div id="namingResults"><div class="empty">Run a scan to check entity names.</div></div></details>
+    <section id="results"><div class="empty">No scan results yet.</div></section><details class="audit-section" id="readdedSection"><summary class="audit-toggle">Re-added device recovery plans</summary><p class="intro">Pairs an unavailable/orphaned original ID with a live suffixed entity only when live state and device/integration identity evidence agree. Plans are read-only.</p><div id="readdedResults"><div class="empty">Run a scan to check for re-added devices.</div></div></details><details class="audit-section" id="cleanNamesSection"><summary class="audit-toggle">Clean-name suggestions</summary><p class="intro">Shorter entity IDs with collision checks, confidence, and exact reference-line previews. Suggestions never rename entities.</p><div id="cleanNamesResults"><div class="empty">Run a scan to review naming suggestions.</div></div></details><details class="audit-section" id="staleSection"><summary class="audit-toggle">Potentially stale references</summary><p class="intro">Entity-like IDs found in reference contexts but absent from the current registry. These need human verification.</p><div id="staleResults"><div class="empty">Run a scan to check for candidates.</div></div></details><details class="audit-section" id="namingSection"><summary class="audit-toggle">Naming information</summary><p class="intro">Numeric suffixes and repeated words are informational observations. They may be intentional; no rename is recommended or performed.</p><div id="namingResults"><div class="empty">Run a scan to check entity names.</div></div></details>
   </section>
 </main>
 </div>
@@ -195,6 +195,17 @@ function renderStale(){
  if(!entities.size){$('staleResults').innerHTML='<div class="empty">No candidate matches in this scan.</div>';return;}
  $('staleResults').innerHTML=[...entities.entries()].map(([id,refs])=>'<details class="candidate"><summary><span class="entity-id">'+esc(id)+'</span><span class="count">'+refs.reduce((n,r)=>n+r.count,0)+' candidate hit(s) · '+refs.length+' file(s)</span></summary><p><b>'+esc(refs[0].priority||'Needs review')+'</b> · Not in the current entity registry. This may be stale, historical, integration-managed, or otherwise valid in context.</p>'+refs.map(evidenceHtml).join('')+'</details>').join('');
 }
+function renderReadded(){
+ const rows=(report?.readded_pairs||[]).filter(x=>(x.old_entity_id+' '+x.replacement_entity_id+' '+x.integration+' '+x.device_name).toLowerCase().includes($('filter').value.trim().toLowerCase()));
+ if(!rows.length){$('readdedResults').innerHTML='<div class="empty">'+esc(report?.readded_detection_note||'No confirmed re-add pairs found. Live state access is required.')+'</div>';return;}
+ $('readdedResults').innerHTML=rows.map(x=>'<div class="finding"><div class="finding-head"><span class="finding-title">'+esc(x.old_entity_id)+' ← '+esc(x.replacement_entity_id)+'</span><span class="count">'+esc(x.confidence)+' confidence</span></div><p>Old state: '+esc(x.old_state)+' · Replacement state: '+esc(x.replacement_state)+'</p><p>Integration: '+esc(x.integration)+' · Device: '+esc(x.device_name||'Not recorded')+'</p><p>'+esc(x.identity_reason)+'</p><p><b>Plan preview — no changes made</b></p><ol>'+x.proposed_steps.map(step=>'<li>'+esc(step)+'</li>').join('')+'</ol><p>Active references that will resolve to the restored original ID: '+x.reference_count+' hit(s) across '+x.active_references.length+' file(s)</p>'+x.active_references.map(ref=>usageEvidenceHtml(ref,x.old_entity_id)).join('')+'</div>').join('');
+}
+function renderCleanNames(){
+ const q=$('filter').value.trim().toLowerCase();
+ const rows=(report?.clean_name_suggestions||[]).filter(x=>(x.entity_id+' '+x.suggested_entity_id+' '+x.reason).toLowerCase().includes(q));
+ if(!rows.length){$('cleanNamesResults').innerHTML='<div class="empty">No safe shortening pattern was detected in this scan.</div>';return;}
+ $('cleanNamesResults').innerHTML=rows.map(x=>'<div class="finding"><div class="finding-head"><span class="finding-title">'+esc(x.entity_id)+' → '+esc(x.suggested_entity_id)+'</span><span class="count">'+esc(x.confidence)+' confidence</span></div><p>'+esc(x.reason)+'</p><p>Collision: <b>'+(x.collision?'Yes — blocked':'No')+'</b> · Affected references: '+(x.affected_lines||[]).length+' line(s)</p>'+(x.collision?'<p class="line">This proposed ID already exists. Do not apply this suggestion.</p>':'')+(x.affected_lines||[]).map(line=>'<div class="evidence"><div class="evidence-head"><span class="path">'+esc(line.file)+'</span><span class="line">Line '+esc(line.line)+'</span><button class="copy" type="button" data-open-file="'+esc(line.file)+'" data-line="'+esc(line.line)+'" data-entity-id="'+esc(x.entity_id)+'">Open file ↗</button></div><div class="line">Before</div><code class="snippet">'+esc(line.before)+'</code><div class="line">Proposed after</div><code class="snippet">'+esc(line.after)+'</code></div>').join('')+'<div class="name-suggestions-note">Plan only. Registry rename and reference edits are not applied.</div></div>').join('');
+}
 function renderNaming(){
  const q=$('filter').value.trim().toLowerCase();
  const rows=(report?.naming_findings||[])
@@ -229,7 +240,7 @@ function render(){
  if(!report)return;
  const html=groupedResults();
  $('results').innerHTML=html||'<div class="empty">No matching registered references.</div>';
- renderStale();renderNaming();
+ renderStale();renderReadded();renderCleanNames();renderNaming();
 }
 async function runScan(force=false){
  report=null;
@@ -237,6 +248,8 @@ async function runScan(force=false){
  $('results').innerHTML='<div class="empty">Scanning user configuration and dashboards…</div>';
  $('staleResults').innerHTML='<div class="empty">Checking for candidate references…</div>';
  $('namingResults').innerHTML='<div class="empty">Reviewing entity names…</div>';
+ $('readdedResults').innerHTML='<div class="empty">Checking live entity states…</div>';
+ $('cleanNamesResults').innerHTML='<div class="empty">Preparing collision-aware suggestions…</div>';
  try{
   const base=window.location.pathname.endsWith('/')?window.location.pathname:window.location.pathname+'/';
   const response=await fetch(base+'api/scan'+(force?'?force=1':''),{cache:'no-store'});
@@ -255,6 +268,8 @@ async function runScan(force=false){
    ['Reference hits (ID occurrences)',report.reference_hits],
    ['Files scanned',report.files_scanned],
    ['Stale candidates',report.potentially_stale_entities||0,'staleSection'],
+   ['Re-add pairs',report.readded_pairs_count||0,'readdedSection'],
+   ['Clean-name suggestions',report.clean_name_suggestions_count||0,'cleanNamesSection'],
    ['Naming findings',report.naming_findings_count||0,'namingSection']
   ].map(([label,value,target])=>'<'+(target?'button class="stat stat-link" type="button" data-scroll-to="'+target+'"':'div class="stat"')+'><div class="num">'+esc(value??0)+'</div><div class="label">'+esc(label)+'</div>'+(target?'</button>':'</div>')).join('');
   const scannedAt=report.last_scanned_at?new Date(report.last_scanned_at).toLocaleString():'Unknown';
@@ -272,6 +287,8 @@ function clearSession(){
  $('results').innerHTML='<div class="empty">No scan results yet.</div>';
  $('staleResults').innerHTML='<div class="empty">Run a scan to check for candidates.</div>';
  $('namingResults').innerHTML='<div class="empty">Run a scan to check entity names.</div>';
+ $('readdedResults').innerHTML='<div class="empty">Run a scan to check for re-added devices.</div>';
+ $('cleanNamesResults').innerHTML='<div class="empty">Run a scan to review naming suggestions.</div>';
  $('alphabetRail').innerHTML='';$('alphabetRail').classList.remove('visible');
  $('filter').value='';
  $('scanMeta').textContent='Last scanned: — · Cache window: 60 seconds';
@@ -284,7 +301,7 @@ $('rescanButton').addEventListener('click',()=>runScan(true));
 function exportData(){
  const active=(report?.results||[]).filter(item=>item.category==='Active configuration'||item.category==='Dashboard');
  const review=(report?.results||[]).filter(item=>item.category==='Needs review');
- return {exported_at:new Date().toISOString(),last_scanned_at:report?.last_scanned_at||null,read_only:true,active_dependencies:active,needs_review_references:review,stale_candidates:report?.potentially_stale||[]};
+ return {exported_at:new Date().toISOString(),last_scanned_at:report?.last_scanned_at||null,read_only:true,active_dependencies:active,needs_review_references:review,stale_candidates:report?.potentially_stale||[],readded_pairs:report?.readded_pairs||[],clean_name_suggestions:report?.clean_name_suggestions||[]};
 }
 function downloadFile(name,type,content){
  const blob=new Blob([content],{type});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
