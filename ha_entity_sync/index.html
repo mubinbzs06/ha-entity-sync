@@ -190,7 +190,7 @@ function groupedResults(){
 }
 function renderDashboardHealth(){
  const rows=(report?.dashboard_health||[]).filter(x=>(x.entity_id+" "+x.file+" "+x.health_status+" "+(x.health_detail||"")).toLowerCase().includes($("filter").value.trim().toLowerCase()));
- if(!rows.length){$("dashboardHealthResults").innerHTML=report?.dashboard_health_checked===false?'<div class="empty">Dashboard references were found, but live-state checking is unavailable. No availability claims can be made.</div>':'<div class="empty">No dashboard references match this search.</div>';return;}
+ if(!rows.length){$("dashboardHealthResults").innerHTML=report?.dashboard_health_checked===false?'<div class="empty">Live-state checking is unavailable. Dashboard reference health could not be verified.</div>':'<div class="empty">No dashboard references match this search.</div>';return;}
  const labels={available:"Available",unavailable:"Unavailable",unknown:"Unknown",missing:"Missing from registry and live states",no_live_state:"Registered · no live state",not_checked:"Not checked"};
  const colors={available:"var(--green)",unavailable:"var(--red)",unknown:"var(--amber)",missing:"var(--red)",no_live_state:"var(--amber)",not_checked:"var(--muted)"};
  $("dashboardHealthResults").innerHTML=rows.map(x=>
