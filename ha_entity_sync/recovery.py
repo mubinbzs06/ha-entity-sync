@@ -150,7 +150,7 @@ def verify_backup_archive(archive_bytes, required_entity_ids):
             members = outer.getmembers()
             direct = next((
                 item for item in members
-                if item.isfile() and item.name.lstrip("./") == ".storage/core.entity_registry"
+                if item.isfile() and (item.name[2:] if item.name.startswith("./") else item.name) == ".storage/core.entity_registry"
             ), None)
             registry_bytes = outer.extractfile(direct).read() if direct else None
             if registry_bytes is None:
@@ -166,7 +166,7 @@ def verify_backup_archive(archive_bytes, required_entity_ids):
                 with tarfile.open(fileobj=io.BytesIO(nested_bytes), mode="r:*") as ha_tar:
                     registry_member = next((
                         item for item in ha_tar.getmembers()
-                        if item.isfile() and item.name.lstrip("./") == ".storage/core.entity_registry"
+                        if item.isfile() and (item.name[2:] if item.name.startswith("./") else item.name) == ".storage/core.entity_registry"
                     ), None)
                     if registry_member is None:
                         raise RecoveryError("Backup does not contain .storage/core.entity_registry.")
@@ -281,6 +281,11 @@ def recover_entity_pair(old_id, replacement_id, fetch_live_states):
     """Move the old entry aside, restore the live entity to the original ID, and retain rollback."""
     old_entry, replacement_entry, identity = _validate_pair(old_id, replacement_id, fetch_live_states)
     backup = create_verified_backup([old_id, replacement_id], f"recovery of {old_id}")
+    # Backup generation can take time; repeat all identity/state checks immediately before writes.
+    checked_old, checked_replacement, checked_identity = _validate_pair(old_id, replacement_id, fetch_live_states)
+    if checked_identity != identity:
+        raise RecoveryError("Identity evidence changed while the backup was being created. No registry changes were made.")
+    old_entry, replacement_entry = checked_old, checked_replacement
     record_id = secrets.token_hex(8)
     record = {
         "id": record_id,
@@ -416,6 +421,16 @@ def rollback_entity_recovery(record_id, fetch_live_states):
         raise RecoveryError("Current registry/state no longer matches this recovery. Rollback was not attempted.")
 
     backup = create_verified_backup([old_id, temp_id], f"rollback of {old_id}")
+    # Recheck the recovered layout after backup creation and immediately before rollback writes.
+    entries, states = _fresh([old_id, replacement_id, temp_id], fetch_live_states)
+    if (
+        not _identity_reason(quarantined_entry, entries.get(temp_id))
+        or not _identity_reason(recovered_entry, entries.get(old_id))
+        or entries.get(replacement_id) is not None
+        or not states.get(old_id)
+        or states[old_id].get("state") in {"unavailable", "unknown"}
+    ):
+        raise RecoveryError("Registry/state changed while the rollback backup was being created. No rollback changes were made.")
     try:
         _rename(old_id, replacement_id)
         entries = _entries([old_id, replacement_id, temp_id])
