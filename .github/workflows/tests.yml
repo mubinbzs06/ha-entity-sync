@@ -30,4 +30,4 @@ jobs:
       - name: Verify S6 environment wrapper is configured
         run: test "$(head -n 1 ha_entity_sync/run.sh)" = "#!/command/with-contenv bash"
       - name: Verify packaged application and startup script
-        run: docker run --rm --entrypoint sh ha-entity-sync-smoke -c "test -x /app/run.sh && python -m py_compile /app/app.py"
+        run: docker run --rm --entrypoint sh ha-entity-sync-smoke -c "test -x /app/run.sh && python -m py_compile /app/app.py /app/recovery.py && python -c "import app, recovery""
