@@ -82,6 +82,7 @@ main{padding:28px clamp(16px,3vw,42px);min-width:0}.top{display:flex;align-items
 .scan-meta{display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:var(--muted);font-size:12px;margin:8px 0 14px}
 .top-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .export-toolbar{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 16px}
+.recover-action{margin:8px 0 4px}.rollback-action{margin:8px 0 4px;border:1px solid var(--amber);color:var(--amber)}.recovery-note{font-size:12px;color:var(--muted);margin:4px 0 10px}.recovery-history-meta{font-size:12px;color:var(--muted);overflow-wrap:anywhere}.recovery-history-status{font-weight:750;text-transform:capitalize}
 </style>
 </head>
 <body>
@@ -99,9 +100,9 @@ main{padding:28px clamp(16px,3vw,42px);min-width:0}.top{display:flex;align-items
   <div class="mobile-brand">HA ENTITY SYNC · LOCAL HOME ASSISTANT AUDIT</div>
   <header class="top" id="overview">
     <div><div class="eyebrow">Home Assistant · Local scan</div><h1>Entity health</h1><div class="sub">A clearer view of registered entities and where they are referenced.</div></div>
-    <div class="top-actions"><span class="pill">Automatic scan on open · Read-only</span><button class="primary" id="rescanButton" type="button">Rescan</button></div>
+    <div class="top-actions"><span class="pill">Automatic scan · Recovery requires approval</span><button class="primary" id="rescanButton" type="button">Rescan</button></div>
   </header>
-  <div class="notice" id="safety">🔒 <b>Read-only mode.</b> This version cannot rename entities or modify your Home Assistant configuration.</div>
+  <div class="notice" id="safety">🛡️ <b>Read-only audit.</b> Recovery is a separate, explicitly approved action. It creates and verifies a Home Assistant backup first. Dashboard and YAML files are never edited.</div>
   <div id="status" role="status" aria-live="polite">Ready. A scan will start when the app opens.</div>
   <div class="scan-meta" id="scanMeta">Last scanned: — · Cache window: 60 seconds</div>
   <section class="stats" id="stats" aria-label="Scan summary">
@@ -110,13 +111,13 @@ main{padding:28px clamp(16px,3vw,42px);min-width:0}.top{display:flex;align-items
     <div class="stat"><div class="num">—</div><div class="label">Reference hits</div></div>
     <div class="stat"><div class="num">—</div><div class="label">Files scanned</div></div>
   </section>
-  <div class="notice secondary">Read-only audit. Unregistered IDs are shown as candidates for review, not confirmed broken references. No entity IDs or Home Assistant files can be changed here.</div>
+  <div class="notice secondary">Unregistered IDs are candidates for review, not confirmed broken references. Entity recovery changes registry IDs only after your confirmation; dashboard and YAML references remain untouched.</div>
   <div class="export-toolbar"><button class="quiet" id="exportJson" type="button" disabled>Export JSON</button><button class="quiet" id="exportCsv" type="button" disabled>Export CSV</button></div>
   <section id="references">
     <div class="section-head"><div><h2>Entity references</h2><p>Groups stay folded until you open them. Expand an entity to see its exact file locations.</p></div></div>
     <div class="search-sticky"><input class="search" id="filter" type="search" placeholder="Search entity IDs or file paths…" aria-label="Search entity IDs or file paths"></div>
     <div class="toolbar"><button class="quiet" id="expandAll" type="button">Expand groups</button><button class="quiet" id="collapseAll" type="button">Collapse all</button></div>
-    <section id="results"><div class="empty">No scan results yet.</div></section><details class="audit-section" id="readdedSection"><summary class="audit-toggle">Re-added device recovery plans</summary><p class="intro">Pairs an unavailable/orphaned original ID with a live suffixed entity only when live state and device/integration identity evidence agree. Plans are read-only.</p><div id="readdedResults"><div class="empty">Run a scan to check for re-added devices.</div></div></details><details class="audit-section" id="cleanNamesSection"><summary class="audit-toggle">Clean-name suggestions</summary><p class="intro">Shorter entity IDs with collision checks, confidence, and exact reference-line previews. Suggestions never rename entities.</p><div id="cleanNamesResults"><div class="empty">Run a scan to review naming suggestions.</div></div></details><details class="audit-section" id="staleSection"><summary class="audit-toggle">Potentially stale references</summary><p class="intro">Entity-like IDs found in reference contexts but absent from the current registry. These need human verification.</p><div id="staleResults"><div class="empty">Run a scan to check for candidates.</div></div></details><details class="audit-section" id="namingSection"><summary class="audit-toggle">Naming information</summary><p class="intro">Numeric suffixes and repeated words are informational observations. They may be intentional; no rename is recommended or performed.</p><div id="namingResults"><div class="empty">Run a scan to check entity names.</div></div></details>
+    <section id="results"><div class="empty">No scan results yet.</div></section><details class="audit-section" id="readdedSection"><summary class="audit-toggle">Re-added device recovery</summary><p class="intro">Each action rechecks identity and live state, creates and verifies a Home Assistant backup, then restores the live replacement to the original ID. The old entry is quarantined so recovery can be undone. No dashboard or YAML files are edited.</p><div id="readdedResults"><div class="empty">Run a scan to check for re-added devices.</div></div></details><details class="audit-section" id="recoveryHistorySection"><summary class="audit-toggle">Recovery history and rollback</summary><p class="intro">Completed actions retain their backup reference and a rollback entry. Undo creates and verifies another backup before reversing the registry rename.</p><div id="recoveryHistoryResults"><div class="empty">No recovery actions recorded.</div></div></details><details class="audit-section" id="cleanNamesSection"><summary class="audit-toggle">Clean-name suggestions</summary><p class="intro">Shorter entity IDs with collision checks, confidence, and exact reference-line previews. Suggestions never rename entities.</p><div id="cleanNamesResults"><div class="empty">Run a scan to review naming suggestions.</div></div></details><details class="audit-section" id="staleSection"><summary class="audit-toggle">Potentially stale references</summary><p class="intro">Entity-like IDs found in reference contexts but absent from the current registry. These need human verification.</p><div id="staleResults"><div class="empty">Run a scan to check for candidates.</div></div></details><details class="audit-section" id="namingSection"><summary class="audit-toggle">Naming information</summary><p class="intro">Numeric suffixes and repeated words are informational observations. They may be intentional; no rename is recommended or performed.</p><div id="namingResults"><div class="empty">Run a scan to check entity names.</div></div></details>
   </section>
 </main>
 </div>
@@ -198,7 +199,12 @@ function renderStale(){
 function renderReadded(){
  const rows=(report?.readded_pairs||[]).filter(x=>(x.old_entity_id+' '+x.replacement_entity_id+' '+x.integration+' '+x.device_name).toLowerCase().includes($('filter').value.trim().toLowerCase()));
  if(!rows.length){$('readdedResults').innerHTML='<div class="empty">'+esc(report?.readded_detection_note||'No confirmed re-add pairs found. Live state access is required.')+'</div>';return;}
- $('readdedResults').innerHTML=rows.map(x=>'<div class="finding"><div class="finding-head"><span class="finding-title">'+esc(x.old_entity_id)+' ← '+esc(x.replacement_entity_id)+'</span><span class="count">'+esc(x.confidence)+' confidence</span></div><p>Old state: '+esc(x.old_state)+' · Replacement state: '+esc(x.replacement_state)+'</p><p>Integration: '+esc(x.integration)+' · Device: '+esc(x.device_name||'Not recorded')+'</p><p>'+esc(x.identity_reason)+'</p><p><b>Plan preview — no changes made</b></p><ol>'+x.proposed_steps.map(step=>'<li>'+esc(step)+'</li>').join('')+'</ol><p>Active references that will resolve to the restored original ID: '+x.reference_count+' hit(s) across '+x.active_references.length+' file(s)</p>'+x.active_references.map(ref=>usageEvidenceHtml(ref,x.old_entity_id)).join('')+'</div>').join('');
+ $('readdedResults').innerHTML=rows.map(x=>'<div class="finding"><div class="finding-head"><span class="finding-title">'+esc(x.old_entity_id)+' ← '+esc(x.replacement_entity_id)+'</span><span class="count">'+esc(x.confidence)+' confidence</span></div><p>Old state: '+esc(x.old_state)+' · Replacement state: '+esc(x.replacement_state)+'</p><p>Integration: '+esc(x.integration)+' · Device: '+esc(x.device_name||'Not recorded')+'</p><p>'+esc(x.identity_reason)+'</p><p><b>Recovery preview — no changes made yet</b></p><ol>'+x.proposed_steps.map(step=>'<li>'+esc(step)+'</li>').join('')+'</ol><p>Active references that will resolve to the restored original ID: '+x.reference_count+' hit(s) across '+x.active_references.length+' file(s)</p>'+x.active_references.map(ref=>usageEvidenceHtml(ref,x.old_entity_id)).join('')+'<button class="primary recover-action" type="button" data-recover-old="'+esc(x.old_entity_id)+'" data-recover-new="'+esc(x.replacement_entity_id)+'">Recover this pair</button><p class="recovery-note">A verified backup is required. The old registry entry is retained under a temporary ID for rollback.</p></div>').join('');
+}
+function renderRecoveryHistory(){
+ const rows=[...(report?.recovery_history||[])].reverse();
+ if(!rows.length){$('recoveryHistoryResults').innerHTML='<div class="empty">No recovery actions recorded.</div>';return;}
+ $('recoveryHistoryResults').innerHTML=rows.map(x=>'<div class="finding"><div class="finding-head"><span class="finding-title">'+esc(x.old_entity_id||'Entity recovery')+'</span><span class="count recovery-history-status">'+esc((x.status||'unknown').replaceAll('_',' '))+'</span></div><p>'+esc(x.old_entity_id||'')+' ← '+esc(x.replacement_entity_id||'')+'</p><div class="recovery-history-meta">Backup: '+esc(x.backup_slug||'Not recorded')+' · Temporary rollback ID: '+esc(x.temporary_entity_id||'Not recorded')+'</div>'+(x.error?'<p class="line">Issue: '+esc(x.error)+'</p>':'')+(x.rollback_message?'<p>'+esc(x.rollback_message)+'</p>':'')+(x.status==='recovered'&&x.rollback_available?'<button class="quiet rollback-action" type="button" data-rollback-id="'+esc(x.id)+'">Undo recovery</button>':'')+(x.status==='manual_restore_required'?'<p class="line">Automatic rollback needs attention. Keep the verified backup; do not retry this pair until reviewed.</p>':'')+'</div>').join('');
 }
 function renderCleanNames(){
  const q=$('filter').value.trim().toLowerCase();
@@ -240,7 +246,7 @@ function render(){
  if(!report)return;
  const html=groupedResults();
  $('results').innerHTML=html||'<div class="empty">No matching registered references.</div>';
- renderStale();renderReadded();renderCleanNames();renderNaming();
+ renderStale();renderReadded();renderRecoveryHistory();renderCleanNames();renderNaming();
 }
 async function runScan(force=false){
  report=null;
@@ -248,7 +254,7 @@ async function runScan(force=false){
  $('results').innerHTML='<div class="empty">Scanning user configuration and dashboards…</div>';
  $('staleResults').innerHTML='<div class="empty">Checking for candidate references…</div>';
  $('namingResults').innerHTML='<div class="empty">Reviewing entity names…</div>';
- $('readdedResults').innerHTML='<div class="empty">Checking live entity states…</div>';
+ $('readdedResults').innerHTML='<div class="empty">Checking live entity states…</div>';$('recoveryHistoryResults').innerHTML='<div class="empty">Loading recovery history…</div>';
  $('cleanNamesResults').innerHTML='<div class="empty">Preparing collision-aware suggestions…</div>';
  try{
   const base=window.location.pathname.endsWith('/')?window.location.pathname:window.location.pathname+'/';
@@ -256,7 +262,7 @@ async function runScan(force=false){
   const nextReport=await response.json();
   if(!nextReport.ok){$('status').textContent=nextReport.error;return;}
   report=nextReport;
-  const warnings=report.scan_warnings||[]; $('status').textContent='Scan complete. No Home Assistant files were changed. Candidate IDs require review.'+(warnings.length?' Warning: '+warnings.join(' '):'');
+  const warnings=report.scan_warnings||[]; $('status').textContent='Scan complete. The scan made no changes. Recovery requires your explicit approval.'+(warnings.length?' Warning: '+warnings.join(' '):'');
   $('stats').innerHTML=[
    ['Registered entities',report.registered_entities],
    ['Entities with any references',report.entities_with_any_references],
@@ -287,7 +293,7 @@ function clearSession(){
  $('results').innerHTML='<div class="empty">No scan results yet.</div>';
  $('staleResults').innerHTML='<div class="empty">Run a scan to check for candidates.</div>';
  $('namingResults').innerHTML='<div class="empty">Run a scan to check entity names.</div>';
- $('readdedResults').innerHTML='<div class="empty">Run a scan to check for re-added devices.</div>';
+ $('readdedResults').innerHTML='<div class="empty">Run a scan to check for re-added devices.</div>';$('recoveryHistoryResults').innerHTML='<div class="empty">Run a scan to load recovery history.</div>';
  $('cleanNamesResults').innerHTML='<div class="empty">Run a scan to review naming suggestions.</div>';
  $('alphabetRail').innerHTML='';$('alphabetRail').classList.remove('visible');
  $('filter').value='';
@@ -438,7 +444,50 @@ function closeFileViewer(){
  returnToEntity=null;
 }
 $('viewerBack').addEventListener('click',closeFileViewer);
-document.addEventListener('click',e=>{
+async function recoveryRequest(path,data){
+ const base=window.location.pathname.endsWith('/')?window.location.pathname:window.location.pathname+'/';
+ const response=await fetch(base+path,{
+  method:'POST',
+  headers:{'Content-Type':'application/json','X-HA-Entity-Sync-Action':'approve'},
+  body:JSON.stringify(data),
+  cache:'no-store'
+ });
+ const result=await response.json();
+ if(!response.ok||!result.ok)throw new Error(result.error||result.message||('Request failed ('+response.status+')'));
+ return result;
+}
+document.addEventListener('click',async e=>{
+ const recover=e.target.closest('[data-recover-old]');
+ if(recover){
+  const oldId=recover.getAttribute('data-recover-old');
+  const newId=recover.getAttribute('data-recover-new');
+  if(!window.confirm('Recover '+oldId+' using live replacement '+newId+'?\n\nEntity Sync will create and verify a Home Assistant backup, move the unavailable registry entry to a temporary rollback ID, then rename the live replacement to the original ID. Dashboard and YAML files will not be edited.'))return;
+  recover.disabled=true;recover.textContent='Creating backup and recovering…';
+  try{
+   const result=await recoveryRequest('api/recover',{old_entity_id:oldId,replacement_entity_id:newId});
+   await runScan(true);
+   window.alert('Recovery completed.\n\nOriginal ID: '+result.old_entity_id+'\nLive replacement: '+result.replacement_entity_id+'\nRollback entry: '+result.temporary_entity_id+'\nVerified backup: '+result.backup_slug+'\n\nYou can undo this from Recovery history.');
+  }catch(error){
+   await runScan(true);
+   window.alert('Recovery was not completed.\n\n'+error.message+'\n\nCheck Recovery history and the backup reference before retrying.');
+  }
+  return;
+ }
+ const rollback=e.target.closest('[data-rollback-id]');
+ if(rollback){
+  const recordId=rollback.getAttribute('data-rollback-id');
+  if(!window.confirm('Undo this entity recovery?\n\nEntity Sync will create and verify a second Home Assistant backup, then restore the original unavailable ID and the live suffixed ID.'))return;
+  rollback.disabled=true;rollback.textContent='Creating backup and undoing…';
+  try{
+   const result=await recoveryRequest('api/rollback',{record_id:recordId});
+   await runScan(true);
+   window.alert('Rollback completed.\n\n'+result.message+'\nVerified rollback backup: '+result.backup_slug);
+  }catch(error){
+   await runScan(true);
+   window.alert('Rollback did not complete.\n\n'+error.message+'\n\nDo not retry until Recovery history and the backup are reviewed.');
+  }
+  return;
+ }
  const copyName=e.target.closest('[data-copy-name]');
  if(copyName){
   const value=copyName.getAttribute('data-copy-name');
