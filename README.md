@@ -4,7 +4,7 @@ A local Home Assistant OS app for **read-only entity reference auditing**.
 
 ## Current build
 
-**Build 2.9 · Version 0.2.9** scans user-maintained Home Assistant configuration, Lovelace dashboards, and a small allowlist of historical storage records.
+**Build 2.9 · Version 0.2.10** scans user-maintained Home Assistant configuration, Lovelace dashboards, and a small allowlist of historical storage records.
 
 It excludes unrelated Home Assistant internals, integration/add-on implementation folders, backups, archives, databases, logs, secrets, and runtime data.
 
@@ -21,6 +21,7 @@ Entities created by integrations are still tracked in the entity registry and ap
 - Historical hits are not counted as active dependencies and do not by themselves justify deleting or renaming an entity.
 - Naming observations are informational only; numeric suffixes and repeated words are not treated as problems or rename recommendations.
 - Naming findings show the entity source/integration when recorded in the entity registry.
+- Naming observations can include optional, unique, copyable ID suggestions; they never rename entities automatically.
 - Usage evidence is grouped by file, with clickable line numbers, compact previews, expandable full references, and the investigated entity highlighted in both previews and the read-only file viewer.
 
 ## Scan scope
@@ -55,3 +56,12 @@ The app mounts Home Assistant configuration at `/homeassistant` **read-only**. I
 - Persistent entity database, scan history, confirmed stale validation, impact previews, verified backup/rollback, and approved repair are future work.
 
 **Golden rule:** no future modification without a verified backup, explicit approval, and a usable rollback path.
+
+
+## Scan performance, counts, and exports (0.2.10)
+
+- The add-on logs its version and listening port at startup, then logs scan duration and a count summary.
+- Scan results are cached in memory for 60 seconds. Opening the panel reuses a fresh cached report; use **Rescan** to force a new scan.
+- Counts distinguish registered entities, entities with active references, historical-only entities, needs-review-only entities, unreferenced entities, reference records (entity/file/category groups), and reference hits (occurrences).
+- Export JSON or CSV for active dependencies, needs-review references, and stale candidates. Exports are generated in the browser and do not modify Home Assistant files.
+- Stale candidates with active/dashboard evidence rank above historical-only candidates. The built-in `conversation` domain is excluded from stale-candidate detection to reduce false positives.
