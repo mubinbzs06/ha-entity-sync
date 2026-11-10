@@ -196,6 +196,7 @@ function renderDashboardHealth(){
  $("dashboardHealthResults").innerHTML=rows.map(x=>
   '<div class="finding"><div class="finding-head"><span class="finding-title">'+esc(x.entity_id)+'</span><span class="count" style="color:'+(colors[x.health_status]||"var(--muted)")+'">'+esc(labels[x.health_status]||x.health_status)+'</span></div>'+
   '<p>'+esc(x.health_detail)+'</p><p>Registry: '+esc(x.registry_status)+' · Live state: '+esc(x.live_state??"not present") +'</p>'+
+  ((x.card_context||[]).length?'<p><b>Card:</b> '+(x.card_context||[]).map(card=>esc(card.card_type)+(card.card_title?' · '+esc(card.card_title):'')+' · '+esc(card.card_path)).join('<br>')+'</p>':'<p class="recovery-note">Card-level context was not available in the stored dashboard format.</p>')+
   usageEvidenceHtml(x,x.entity_id)+
   (x.dashboard_url?'<button class="dashboard-preview-button" type="button" data-dashboard-url="'+esc(x.dashboard_url)+'">Preview dashboard</button>':'<p class="recovery-note">Dashboard preview route is unavailable.</p>')+
   '</div>'
