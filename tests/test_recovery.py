@@ -56,11 +56,21 @@ class RecoveryTests(unittest.TestCase):
         with self.assertRaises(recovery.RecoveryError):
             recovery.verify_backup_archive(archive, [self.old, self.new])
 
+    def test_backup_archive_rejects_changed_registry_identity(self):
+        archive = make_backup_archive([self.old, self.new])
+        with self.assertRaisesRegex(recovery.RecoveryError, "identity"):
+            recovery.verify_backup_archive(
+                archive, [self.old, self.new],
+                {self.old: self.old_entry, self.new: {**self.new_entry, "device_id": "other"}},
+            )
+
     def test_identity_requires_strong_registry_lineage(self):
         self.assertEqual(
             recovery._identity_reason(self.old_entry, self.new_entry),
-            "Same registered device ID",
+            "Same registered device ID and integration",
         )
+        cross_integration = {**self.new_entry, "platform": "other"}
+        self.assertIsNone(recovery._identity_reason(self.old_entry, cross_integration))
         unrelated = {
             "entity_id": self.new, "unique_id": "different",
             "device_id": "other-device", "platform": "other",
@@ -127,7 +137,8 @@ class RecoveryTests(unittest.TestCase):
             patch.object(recovery, "_rename") as rename,
             patch.object(recovery.time, "sleep"),
         ):
-            result = recovery.recover_entity_pair(self.old, self.new, lambda: final_states)
+            live_fetch = unittest.mock.Mock(side_effect=[{}, final_states])
+            result = recovery.recover_entity_pair(self.old, self.new, live_fetch)
         self.assertTrue(result["ok"])
         self.assertEqual(result["status"], "recovered")
         self.assertEqual(result["temporary_entity_id"], temp_id)
