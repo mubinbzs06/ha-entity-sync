@@ -82,7 +82,7 @@ main{padding:28px clamp(16px,3vw,42px);min-width:0}.top{display:flex;align-items
 .scan-meta{display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:var(--muted);font-size:12px;margin:8px 0 14px}
 .top-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .export-toolbar{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 16px}
-.recover-action{margin:8px 0 4px}.rollback-action{margin:8px 0 4px;border:1px solid var(--amber);color:var(--amber)}.recovery-note{font-size:12px;color:var(--muted);margin:4px 0 10px}.recovery-history-meta{font-size:12px;color:var(--muted);overflow-wrap:anywhere}.recovery-history-status{font-weight:750;text-transform:capitalize}
+.dashboard-live-preview{margin:10px 0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--panel)}.dashboard-live-preview iframe{display:block;width:100%;height:520px;border:0;background:#111}.dashboard-preview-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:8px 10px}.dashboard-preview-toolbar span{font-size:11px;color:var(--muted)}.dashboard-preview-button{margin:6px 0;padding:7px 10px;border:1px solid var(--line);border-radius:7px;background:var(--panel);color:var(--text);font-size:12px}.recover-action{margin:8px 0 4px}.rollback-action{margin:8px 0 4px;border:1px solid var(--amber);color:var(--amber)}.recovery-note{font-size:12px;color:var(--muted);margin:4px 0 10px}.recovery-history-meta{font-size:12px;color:var(--muted);overflow-wrap:anywhere}.recovery-history-status{font-weight:750;text-transform:capitalize}
 </style>
 </head>
 <body>
@@ -203,7 +203,7 @@ function renderReadded(){
   const identity=(x.identity_evidence||[]).map(item=>'<li><b>'+esc(item.type)+'</b> · '+esc(item.status.replace(/_/g,' '))+' · '+esc(item.strength)+' — '+esc(item.detail)+'</li>').join('');
   const conflicts=(x.identity_conflicts||[]).map(item=>'<li><b>'+esc(item.type)+'</b> — '+esc(item.detail)+'</li>').join('');
   const dashboards=(x.active_references||[]).filter(ref=>ref.category==='Dashboard');
-  const configPreview=dashboards.length?'<div class="evidence"><b>Dashboard card configuration preview</b><p class="recovery-note">These are stored dashboard references, not a live rendered card. The existing card still points to the original ID; a successful registry recovery should make that ID live again.</p>'+dashboards.map(ref=>usageEvidenceHtml(ref,x.old_entity_id)).join('')+'</div>':'';
+  const configPreview=dashboards.length?'<div class="evidence"><b>Affected dashboard references</b><p class="recovery-note">Stored card configuration is shown below. Use the live preview to inspect the actual Home Assistant dashboard in this panel; it is not an automated pass/fail test of an individual card.</p>'+dashboards.map(ref=>usageEvidenceHtml(ref,x.old_entity_id)+(ref.dashboard_url?'<button class="dashboard-preview-button" type="button" data-dashboard-url="'+esc(ref.dashboard_url)+'">Preview live dashboard</button>':'<p class="recovery-note">Dashboard URL could not be resolved from Home Assistant dashboard metadata.</p>')).join('')+'</div>':'';
   return '<div class="finding"><div class="finding-head"><span class="finding-title">'+esc(x.old_entity_id)+' ← '+esc(x.replacement_entity_id)+'</span><span class="count">'+esc(x.confidence)+' confidence</span></div><p>Old state: '+esc(x.old_state)+' · Replacement state: '+esc(x.replacement_state)+'</p><p>Integration: '+esc(x.integration)+' · Device: '+esc(x.device_name||'Not recorded')+'</p><p>'+esc(x.identity_reason)+'</p><div class="evidence"><b>Why this replacement was selected</b><ul>'+identity+'</ul>'+(conflicts?'<b>Conflicting evidence</b><ul>'+conflicts+'</ul>':'')+'</div><p><b>Recovery preview — no changes made yet</b></p><ol>'+x.proposed_steps.map(step=>'<li>'+esc(step)+'</li>').join('')+'</ol><p>Active references that will resolve to the restored original ID: '+x.reference_count+' hit(s) across '+x.active_references.length+' file(s)</p>'+configPreview+x.active_references.filter(ref=>ref.category!=='Dashboard').map(ref=>usageEvidenceHtml(ref,x.old_entity_id)).join('')+'<button class="primary recover-action" type="button" data-recover-old="'+esc(x.old_entity_id)+'" data-recover-new="'+esc(x.replacement_entity_id)+'">Recover this pair</button><p class="recovery-note">A verified backup is required. The old registry entry is retained under a temporary ID for rollback.</p></div>';
  }).join('');
 }
@@ -463,6 +463,36 @@ async function recoveryRequest(path,data){
  return result;
 }
 document.addEventListener('click',async e=>{
+ const dashboardPreview=e.target.closest('[data-dashboard-url]');
+ if(dashboardPreview){
+  const url=dashboardPreview.getAttribute('data-dashboard-url')||'';
+  if(!url.startsWith('/')||url.startsWith('//'))return;
+  const finding=dashboardPreview.closest('.finding');
+  if(!finding)return;
+  let panel=finding.querySelector('.dashboard-live-preview');
+  if(!panel){
+   panel=document.createElement('div');
+   panel.className='dashboard-live-preview';
+   const toolbar=document.createElement('div');
+   toolbar.className='dashboard-preview-toolbar';
+   const label=document.createElement('span');
+   label.textContent='Live Home Assistant dashboard · inspect the affected card below';
+   const close=document.createElement('button');
+   close.type='button';close.className='dashboard-preview-button';close.textContent='Close preview';
+   close.addEventListener('click',()=>panel.remove());
+   toolbar.append(label,close);
+   const frame=document.createElement('iframe');
+   frame.title='Live Home Assistant dashboard preview';
+   frame.loading='lazy';
+   frame.referrerPolicy='same-origin';
+   panel.append(toolbar,frame);
+   dashboardPreview.insertAdjacentElement('afterend',panel);
+  }
+  const frame=panel.querySelector('iframe');
+  frame.src=url;
+  panel.scrollIntoView({behavior:'smooth',block:'nearest'});
+  return;
+ }
  const recover=e.target.closest('[data-recover-old]');
  if(recover){
   const oldId=recover.getAttribute('data-recover-old');
