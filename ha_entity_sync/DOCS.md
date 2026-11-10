@@ -1,6 +1,6 @@
-# HA Entity Sync — Build 2.10
+# HA Entity Sync — Build 2.12
 
-**App version: 0.2.11**
+**App version: 0.2.13**
 
 Build 2.7 adds a read-only historical reference audit while keeping active dependencies separate.
 
