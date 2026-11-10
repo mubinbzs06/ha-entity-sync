@@ -476,5 +476,35 @@ class ScannerTests(unittest.TestCase):
         self.assertIn("HTTP 403", output.getvalue())
 
 
+    def test_candidate_files_excludes_symlinks_and_symlink_directories(self):
+        outside = Path(self.temp.name).parent / (Path(self.temp.name).name + "-outside.yaml")
+        outside.write_text("entity_id: sensor.known\\n", encoding="utf-8")
+        linked_file = self.root / "linked.yaml"
+        linked_file.symlink_to(outside)
+        outside_dir = self.root / "linked_dir"
+        outside_dir.symlink_to(outside.parent, target_is_directory=True)
+        try:
+            included = {path.relative_to(self.root).as_posix() for path in app.candidate_files()}
+            self.assertNotIn("linked.yaml", included)
+            self.assertNotIn("linked_dir", included)
+        finally:
+            outside.unlink()
+
+    def test_scan_stops_at_configured_file_limit_and_reports_warning(self):
+        (self.root / "z_second.yaml").write_text("entity_id: sensor.known\\n", encoding="utf-8")
+        with patch.object(app, "MAX_SCAN_FILES", 1):
+            report = app.scan()
+        self.assertTrue(report["ok"])
+        self.assertEqual(report["files_scanned"], 1)
+        self.assertTrue(any("safety limit" in warning for warning in report["scan_warnings"]))
+
+    def test_live_state_api_reports_missing_supervisor_token(self):
+        output = io.StringIO()
+        with patch.dict("os.environ", {}, clear=True), contextlib.redirect_stdout(output):
+            states = app.fetch_live_states()
+        self.assertIsNone(states)
+        self.assertIn("SUPERVISOR_TOKEN is missing", output.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()
