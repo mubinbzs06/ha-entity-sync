@@ -309,10 +309,12 @@ function downloadFile(name,type,content){
 $('exportJson').addEventListener('click',()=>{if(report)downloadFile('ha-entity-sync-export.json','application/json;charset=utf-8',JSON.stringify(exportData(),null,2));});
 $('exportCsv').addEventListener('click',()=>{
  if(!report)return;
- const data=exportData();const rows=[['record_type','entity_id','file','category','count','line_numbers','priority','reason']];
+ const data=exportData();const rows=[['record_type','entity_id','suggested_entity_id','file','category','count','line_numbers','priority','confidence','collision','before','after','reason']];
  for(const item of data.active_dependencies)rows.push(['active_dependency',item.entity_id,item.file,item.category,item.count,(item.lines||[]).join('; '),'','']);
  for(const item of data.needs_review_references)rows.push(['needs_review_reference',item.entity_id,item.file,item.category,item.count,(item.lines||[]).join('; '),'','']);
  for(const item of data.stale_candidates)rows.push(['stale_candidate',item.entity_id,item.file,item.category,item.count,(item.lines||[]).join('; '),item.priority||'',item.reason||'']);
+ for(const plan of data.readded_pairs)for(const ref of plan.active_references||[])rows.push(['readded_pair_reference',plan.old_entity_id,plan.replacement_entity_id,ref.file,ref.category,ref.count,(ref.lines||[]).join('; '),'',plan.confidence,'','','',plan.identity_reason]);
+ for(const plan of data.clean_name_suggestions)for(const line of plan.affected_lines||[])rows.push(['clean_name_diff',plan.entity_id,plan.suggested_entity_id,line.file,line.category,1,String(line.line||''),'',plan.confidence,plan.collision?'yes':'no',line.before,line.after,plan.reason]);
  const csv=rows.map(row=>row.map(value=>'"'+String(value??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');
  downloadFile('ha-entity-sync-export.csv','text/csv;charset=utf-8',csv);
 });
