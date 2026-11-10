@@ -1,69 +1,60 @@
-# Entity Sync — Human-readable repair experience
+# Entity Sync — Replacement confidence engine
 
-## Product principle
+## Scope
 
-Spook is a useful reference for detecting unknown Home Assistant references and suggesting likely replacements. Entity Sync should go further: explain the impact in plain language, show the evidence, prepare a precise repair plan, and make every approved change recoverable.
+Improve only how Entity Sync identifies likely replacement entities. Keep the existing app, screens, scan workflow, friendly-name handling, repair preview, backup, recovery, verification, audit history, and rollback behavior.
 
-**Find the ghost. Explain it. Prove the replacement. Preview the repair. Back up. Apply. Verify. Offer rollback.**
+This is not a redesign and is not an Energy Dashboard milestone.
 
-## First implementation target: Energy Dashboard
+## Existing behavior to preserve
 
-### Detection
+- Existing re-add detection checks unavailable/orphaned original entities against live suffixed entities.
+- Existing strong identity checks use matching integration unique ID, device ID, or matching config-entry ID plus platform.
+- Existing recovery flow creates and verifies a Supervisor backup before registry changes, keeps the old entry under a rollback ID, verifies the live replacement, and supports rollback.
+- Existing friendly-name and clean-name suggestions remain advisory. They must not become identity proof or cause automatic renames.
 
-Use Home Assistant's own read-only Energy WebSocket commands rather than treating a raw text search as authoritative:
+## Replacement identification improvements
 
-- energy/validate — obtain Home Assistant's validation findings.
-- energy/get_prefs — obtain the current Energy preferences for context.
+### Evidence hierarchy
 
-The add-on already has an authenticated Home Assistant WebSocket client in recovery.py. Reuse the authenticated connection path without adding a second credential or exposing a token in the UI.
+1. **Strong identity evidence**
+   - Matching integration unique ID.
+   - Matching Home Assistant device ID.
+   - Matching config-entry ID together with matching integration/platform.
+2. **Supporting evidence**
+   - Same entity domain.
+   - Similar normalized object IDs, including the expected numeric re-add suffix pattern.
+   - Compatible integration/platform metadata where available.
+   - Matching device labels, when available, as supporting context only.
+3. **Historical/statistics evidence**
+   - Use only when a stable statistic identity and its metadata are actually available from Home Assistant.
+   - Never infer matching history from similar entity names or entity IDs alone.
+   - If unavailable, say that statistics identity was not checked.
 
-Treat the validation response as the source of truth for Energy findings. Do not infer that an entity is missing solely because it is absent from a text scan. Distinguish missing/not-defined from unavailable, non-numeric, or statistics-only cases according to Home Assistant's validation result.
+### Confidence and safety rules
 
-### Replacement suggestions
+- A strong identity signal is required for a **high-confidence recovery candidate**.
+- Name similarity alone can produce a review suggestion, never a recovery candidate.
+- Same-domain similarity is supporting evidence, not identity proof.
+- Conflicting platform, config-entry, device, or unique-ID evidence must lower confidence or suppress the candidate; never silently prefer a fuzzy name match.
+- Show the evidence that supports and contradicts each candidate in plain language.
+- Do not imply a score is a probability. Confidence labels describe evidence quality, not statistical certainty.
+- If multiple plausible candidates exist, show the ambiguity and require human selection; do not silently choose one.
+- Keep current conservative behavior when metadata is missing.
 
-1. Prefer a deleted-entity registry record, if Home Assistant provides one.
-2. Otherwise suggest the closest currently registered entity in the same domain.
-3. Use a conservative similarity threshold (Spook currently uses 0.8) and show the similarity as a suggestion, never as proof.
-4. Corroborate with integration/platform, unique ID, config-entry ID, device ID, and statistics identity when available.
-5. Clearly separate name similarity from identity evidence.
-6. If evidence is insufficient or conflicting, say so and do not offer an automatic repair.
+## Implementation sequence
 
-### Human-readable impact
+1. Audit the current re-add matcher and its tests before changing it.
+2. Extract or add a pure, testable evidence evaluator that returns structured evidence and a confidence classification.
+3. Keep the existing re-add eligibility checks: original unavailable/orphaned, replacement live, same domain, and valid re-add relationship.
+4. Add tests for each strong identity signal, missing metadata, conflicting metadata, name-only lookalikes, multiple candidates, and unavailable live-state access.
+5. Surface the evidence breakdown in the existing candidate card without changing the overall layout or recovery workflow.
+6. Run the full test suite and container smoke checks. Do not merge or release until they pass.
 
-The default view should answer: what is broken, what the setting controls, where it is configured, the likely replacement, why it is suggested, what would change, and what history/statistics could be affected.
+## Non-goals
 
-Raw JSON/YAML and line-level detail belong behind an optional Technical details disclosure. Never make a user inspect hundreds of lines to understand the finding.
-
-### Repair safety
-
-The first Energy milestone is read-only detection and explanation only. No Energy preference writes are included in this milestone.
-
-A later Energy repair must show exact old/new values and affected settings; preserve unrelated preferences; create and verify a recoverable backup; revalidate immediately before applying; require approval for that exact plan; verify saved preferences and validation afterwards; and retain rollback and audit records.
-
-Do not remove Energy sources or clear settings just because they are unknown. Removing a meter can affect what the dashboard displays, even when recorder statistics remain.
-
-## Generalization after Energy
-
-Build the explanation/repair-plan model so it can later serve Lovelace dashboards, automations, scripts, helpers, and YAML configuration. Each reference type must have a type-specific explanation and repair strategy; do not apply generic text replacement to all files.
-
-## UX sketch
-
-**Energy Dashboard — Missing entity**
-
-- Missing: sensor.example_old_energy
-- Suggested replacement: sensor.example_energy
-- Status: Candidate — identity not yet verified
-- Meaning: The Energy Dashboard is configured to read a meter Home Assistant cannot currently find.
-- Location: Energy Dashboard → Device consumption
-- Evidence: same domain; name similarity; integration/device/statistics checks shown separately.
-- Action: Review repair plan (disabled until sufficient evidence exists)
-
-Technical details is optional and contains the underlying Home Assistant validation details and configuration evidence.
-
-## Non-goals for the first milestone
-
-- No live configuration changes.
-- No automatic deletion or clearing.
-- No direct editing of .storage/energy.
-- No entity rename based on fuzzy name matching alone.
-- No claim that a replacement preserves historical statistics until statistic IDs and metadata have been checked.
+- No new Energy Dashboard feature in this milestone.
+- No automatic repairs or automatic entity renames.
+- No generic text replacement across YAML, dashboards, or .storage.
+- No changes to backup, approval, recovery, verification, or rollback semantics.
+- No broad UI redesign.
