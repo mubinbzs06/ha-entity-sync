@@ -38,7 +38,7 @@ function render(){
 $('scan').onclick=async()=>{
  $('scan').disabled=true;$('status').textContent='Scanning read-only configuration files…';
  try{
-  const r=await fetch('api/scan');report=await r.json();
+  const base=window.location.pathname.endsWith('/')?window.location.pathname:window.location.pathname+'/';\n  const r=await fetch(base+'api/scan');report=await r.json();
   if(!report.ok){$('status').textContent=report.error;$('stats').innerHTML='';$('results').innerHTML='';return;}
   $('status').textContent='Scan complete. No files were changed.';
   $('stats').innerHTML=[
