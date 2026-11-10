@@ -189,11 +189,11 @@ function groupedResults(){
 }
 function renderStale(){
  const q=$('filter').value.trim().toLowerCase();
- const rows=(report?.potentially_stale||[]).filter(x=>(x.entity_id+' '+x.file).toLowerCase().includes(q));
+ const rows=(report?.potentially_stale||[]).filter(x=>(x.entity_id+' '+x.file+' '+(x.priority||'')).toLowerCase().includes(q));
  const entities=new Map();
  for(const item of rows){if(!entities.has(item.entity_id))entities.set(item.entity_id,[]);entities.get(item.entity_id).push(item);}
  if(!entities.size){$('staleResults').innerHTML='<div class="empty">No candidate matches in this scan.</div>';return;}
- $('staleResults').innerHTML=[...entities.entries()].map(([id,refs])=>'<details class="candidate"><summary><span class="entity-id">'+esc(id)+'</span><span class="count">'+refs.reduce((n,r)=>n+r.count,0)+' candidate hit(s) · '+refs.length+' file(s)</span></summary><p>Not in the current entity registry. This may be stale, historical, integration-managed, or otherwise valid in context.</p>'+refs.map(evidenceHtml).join('')+'</details>').join('');
+ $('staleResults').innerHTML=[...entities.entries()].map(([id,refs])=>'<details class="candidate"><summary><span class="entity-id">'+esc(id)+'</span><span class="count">'+refs.reduce((n,r)=>n+r.count,0)+' candidate hit(s) · '+refs.length+' file(s)</span></summary><p><b>'+esc(refs[0].priority||'Needs review')+'</b> · Not in the current entity registry. This may be stale, historical, integration-managed, or otherwise valid in context.</p>'+refs.map(evidenceHtml).join('')+'</details>').join('');
 }
 function renderNaming(){
  const q=$('filter').value.trim().toLowerCase();
