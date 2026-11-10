@@ -83,7 +83,7 @@ main{padding:28px clamp(16px,3vw,42px);min-width:0}.top{display:flex;align-items
 .top-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .export-toolbar{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 16px}
 .dashboard-live-preview{margin:10px 0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--panel)}.dashboard-live-preview iframe{display:block;width:100%;height:520px;border:0;background:#111}.dashboard-preview-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:8px 10px}.dashboard-preview-toolbar span{font-size:11px;color:var(--muted)}.dashboard-preview-button{margin:6px 0;padding:7px 10px;border:1px solid var(--line);border-radius:7px;background:var(--panel);color:var(--text);font-size:12px}.recover-action{margin:8px 0 4px}.rollback-action{margin:8px 0 4px;border:1px solid var(--amber);color:var(--amber)}.recovery-note{font-size:12px;color:var(--muted);margin:4px 0 10px}.recovery-history-meta{font-size:12px;color:var(--muted);overflow-wrap:anywhere}.recovery-history-status{font-weight:750;text-transform:capitalize}
-</style>
+.repair-controls{margin:10px 0 14px;padding:12px;border:1px solid var(--line);border-radius:9px;background:var(--panel)}.repair-controls label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}.repair-controls input{width:100%;padding:9px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--text);margin-bottom:8px}.repair-diff{display:grid;gap:8px;margin:10px 0}.repair-diff pre{white-space:pre-wrap;overflow-wrap:anywhere;padding:10px;border-radius:7px;background:var(--bg);font-size:12px}.repair-diff .before{border-left:3px solid var(--red)}.repair-diff .after{border-left:3px solid var(--green)}.repair-apply{margin-top:8px}</style>
 </head>
 <body>
 <div class="shell">
@@ -208,8 +208,11 @@ function renderStale(){
  const entities=new Map();
  for(const item of rows){if(!entities.has(item.entity_id))entities.set(item.entity_id,[]);entities.get(item.entity_id).push(item);}
  if(!entities.size){$('staleResults').innerHTML='<div class="empty">No candidate matches in this scan.</div>';return;}
- $('staleResults').innerHTML=[...entities.entries()].map(([id,refs])=>'<details class="candidate"><summary><span class="entity-id">'+esc(id)+'</span><span class="count">'+refs.reduce((n,r)=>n+r.count,0)+' candidate hit(s) · '+refs.length+' file(s)</span></summary><p><b>'+esc(refs[0].priority||'Needs review')+'</b> · Not in the current entity registry. This may be stale, historical, integration-managed, or otherwise valid in context.</p>'+refs.map(evidenceHtml).join('')+'</details>').join('');
+ $('staleResults').innerHTML=[...entities.entries()].map(([id,refs])=>'<details class="candidate"><summary><span class="entity-id">'+esc(id)+'</span><span class="count">'+refs.reduce((n,r)=>n+r.count,0)+' candidate hit(s) · '+refs.length+' file(s)</span></summary><p><b>'+esc(refs[0].priority||'Needs review')+'</b> · Not in the current entity registry. This may be stale, historical, integration-managed, or otherwise valid in context.</p>'+refs.map(ref=>evidenceHtml(ref)+
+  (ref.category==='Historical'?'':'<div class="repair-controls"><label>Replacement entity ID</label><input type="text" class="repair-replacement" placeholder="Enter verified existing entity ID" autocomplete="off"><button class="quiet" type="button" data-repair-preview="1" data-old-id="'+esc(id)+'" data-file="'+esc(ref.file)+'">Preview reference repair</button><div class="repair-preview"></div></div>')
+ ).join('')+'</details>').join('');
 }
+
 function renderReadded(){
  const rows=(report?.readded_pairs||[]).filter(x=>(x.old_entity_id+' '+x.replacement_entity_id+' '+x.integration+' '+x.device_name).toLowerCase().includes($('filter').value.trim().toLowerCase()));
  if(!rows.length){$('readdedResults').innerHTML='<div class="empty">'+esc(report?.readded_detection_note||'No confirmed re-add pairs found. Live state access is required.')+'</div>';return;}
@@ -347,8 +350,7 @@ async function runScan(force=false){
   const nextReport=await response.json();
   if(!nextReport.ok){$('status').textContent=nextReport.error;return;}
   report=nextReport;
-  const warnings=report.scan_warnings||[]; $('status').textContent='Scan complete. The scan made no changes. Recovery requires your explicit approval.'+(warnings.length?' Warning: '+warnings.join(' '):'');
-  $('stats').innerHTML=[
+  const warnings=report.scan_warnings||[]; $('status').textContent='Scan complete. The scan made no changes. Recovery requires your explicit approval.'+(warnings.length?' Warning: '+warnings.join(' '):'');  $('stats').innerHTML=[
    ['Registered entities',report.registered_entities],
    ['Entities with any references',report.entities_with_any_references],
    ['Entities with active references',report.entities_with_active_references],
@@ -543,6 +545,41 @@ async function recoveryRequest(path,data){
  return result;
 }
 document.addEventListener('click',async e=>{
+ const repairPreview=e.target.closest('[data-repair-preview]');
+ if(repairPreview){
+  const controls=repairPreview.closest('.repair-controls');
+  const replacement=controls.querySelector('.repair-replacement').value.trim();
+  const oldId=repairPreview.getAttribute('data-old-id');
+  const file=repairPreview.getAttribute('data-file');
+  const panel=controls.querySelector('.repair-preview');
+  if(!replacement){window.alert('Enter the replacement entity ID first.');return;}
+  repairPreview.disabled=true;repairPreview.textContent='Preparing preview…';
+  try{
+   const plan=await recoveryRequest('api/config-repair/preview',{file,old_entity_id:oldId,replacement_entity_id:replacement});
+   panel.innerHTML='<div class="repair-diff"><div><b>Before · '+esc(plan.occurrences)+' occurrence(s)</b><pre class="before">'+esc(plan.before)+'</pre></div><div><b>After</b><pre class="after">'+esc(plan.after)+'</pre></div></div><p class="recovery-note">This changes only this configuration file. A verified file backup is created immediately before applying. The selected replacement must already exist and be live.</p><button class="primary repair-apply" type="button" data-repair-apply="1" data-file="'+esc(file)+'" data-old-id="'+esc(oldId)+'" data-new-id="'+esc(replacement)+'" data-sha="'+esc(plan.before_sha256)+'">Approve and apply repair</button>';
+  }catch(error){panel.innerHTML='<p class="viewer-error">'+esc(error.message)+'</p>';}
+  repairPreview.disabled=false;repairPreview.textContent='Preview reference repair';
+  return;
+ }
+ const repairApply=e.target.closest('[data-repair-apply]');
+ if(repairApply){
+  const file=repairApply.getAttribute('data-file');
+  const oldId=repairApply.getAttribute('data-old-id');
+  const replacement=repairApply.getAttribute('data-new-id');
+  if(!window.confirm('Apply this exact repair?\n\n'+oldId+' → '+replacement+'\nFile: '+file+'\n\nEntity Sync will verify a pre-repair backup, update only this file, and verify the result.')){
+   return;
+  }
+  repairApply.disabled=true;repairApply.textContent='Backing up and applying…';
+  try{
+   const result=await recoveryRequest('api/config-repair/apply',{file,old_entity_id:oldId,replacement_entity_id:replacement,expected_sha256:repairApply.getAttribute('data-sha')});
+   await runScan(true);
+   window.alert('Configuration repair completed and verified.\nBackup record: '+result.record.id+'\nFile: '+result.record.file+'\nOccurrences updated: '+result.record.occurrences);
+  }catch(error){
+   repairApply.disabled=false;repairApply.textContent='Approve and apply repair';
+   window.alert('Repair was not completed.\n\n'+error.message);
+  }
+  return;
+ }
  const dashboardPreview=e.target.closest('[data-dashboard-url]');
  if(dashboardPreview){
   const url=dashboardPreview.getAttribute('data-dashboard-url')||'';
