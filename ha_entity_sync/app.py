@@ -385,9 +385,16 @@ def build_clean_name_suggestions(registry, references):
                 candidate_words = candidate_words[:width] + candidate_words[2 * width:]
                 reasons.append("Collapsed an immediately repeated name sequence")
                 break
+        suffix_removed = False
+        if candidate_words and candidate_words[-1] in {"2", "3"}:
+            removed_suffix = candidate_words.pop()
+            suffix_removed = True
+            reasons.append(f"Removed trailing HA duplicate suffix _{removed_suffix}; verify it is not intentional")
+        platform_removed = False
         platform = (item.get("platform") or "").casefold()
         if platform and len(candidate_words) > 1 and candidate_words[0].casefold() == platform:
             candidate_words = candidate_words[1:]
+            platform_removed = True
             reasons.append("Removed a leading integration prefix confirmed by registry metadata")
         if candidate_words == words:
             continue
@@ -395,7 +402,8 @@ def build_clean_name_suggestions(registry, references):
         if proposed == domain + ".":
             continue
         collision = proposed in occupied and proposed != entity_id
-        confidence = "high" if reasons and not collision else "low" if collision else "medium"
+        repeated_only = any("repeated name sequence" in reason for reason in reasons) and not suffix_removed and not platform_removed
+        confidence = "low" if collision else "high" if repeated_only else "medium"
         refs = [ref for ref in refs_by_id.get(entity_id, []) if ref.get("category") in {"Dashboard", "Active configuration"}]
         updates = []
         for reference in refs:
@@ -408,6 +416,11 @@ def build_clean_name_suggestions(registry, references):
             "reason": "; ".join(reasons),
             "references": refs,
             "affected_lines": updates,
+            "proposed_steps": [
+                f"Rename the registered entity from {entity_id} to {proposed}",
+                "Update only the listed active dashboard/YAML references",
+                "Validate the new ID is still collision-free immediately before any future Apply",
+            ],
             "read_only_plan": True,
         })
     return suggestions
