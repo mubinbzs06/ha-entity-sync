@@ -20,7 +20,7 @@ REGISTRY = CONFIG / ".storage" / "core.entity_registry"
 MAX_FILE_BYTES = 5 * 1024 * 1024
 MAX_SCAN_FILES = 5000
 MAX_SCAN_BYTES = 100 * 1024 * 1024
-VERSION = "0.2.16"
+VERSION = "0.2.17"
 PORT = 8099
 SCAN_CACHE_SECONDS = 60
 IGNORED_STALE_DOMAINS = {"conversation"}
@@ -377,6 +377,41 @@ def enrich_dashboard_references(references):
     return enriched
 
 
+def build_dashboard_health(dashboard_references, registry, live_states):
+    """Classify every discovered dashboard entity reference against registry and live states."""
+    registered = {item["entity_id"] for item in registry}
+    routes = dashboard_route_index()
+    health = []
+    for reference in dashboard_references:
+        entity_id = reference.get("entity_id")
+        if not entity_id:
+            continue
+        is_registered = entity_id in registered
+        state_record = live_states.get(entity_id) if live_states is not None else None
+        state = state_record.get("state") if state_record else None
+        if live_states is None:
+            status = "not_checked"
+            detail = "Live-state API was unavailable; availability cannot be confirmed."
+        elif state_record is not None and state == "unavailable":
+            status = "unavailable"
+            detail = "The entity exists in Home Assistant live states but its state is unavailable."
+        elif state_record is not None and state == "unknown":
+            status = "unknown"
+            detail = "The entity exists in Home Assistant live states but its state is unknown."
+        elif state_record is not None:
+            status = "available"
+            detail = "The entity is present in Home Assistant live states."
+        elif is_registered:
+            status = "no_live_state"
+            detail = "The entity is registered but is not currently present in live states."
+        else:
+            status = "missing"
+            detail = "The dashboard references an ID absent from both the entity registry and live states."
+        item = dict(reference)
+        item.update({"registry_status": "registered" if is_registered else "not_registered", "live_state": state, "health_status": status, "health_detail": detail, "dashboard_url": routes.get(reference.get("file")), "dashboard_preview_available": bool(routes.get(reference.get("file")))})
+        health.append(item)
+    health.sort(key=lambda item: ({"missing": 0, "unavailable": 1, "unknown": 2, "no_live_state": 3, "not_checked": 4, "available": 5}.get(item["health_status"], 6), item["entity_id"], item.get("file", "")))
+    return health
 def dashboard_route_index():
     """Map Lovelace storage files to their Home Assistant dashboard URL paths."""
     routes = {".storage/lovelace": "/lovelace"}
@@ -611,7 +646,7 @@ def scan():
                         entry["lines"].append(line_no)
                         entry["matches"].append(evidence)
                 elif entity_id.split(".", 1)[0] not in IGNORED_STALE_DOMAINS and entity_id.split(".", 1)[0] in known_domains and (
-                    category == "Historical" or ENTITY_CONTEXT_RE.search(line)
+                    category in {"Historical", "Dashboard"} or ENTITY_CONTEXT_RE.search(line)
                 ):
                     key = (entity_id, rel)
                     entry = candidates.setdefault(key, {
@@ -645,13 +680,17 @@ def scan():
     for item in stale:
         rank = candidate_priority(item["entity_id"])
         item["priority"] = "Active/dashboard evidence" if rank == 0 else "Needs review evidence" if rank == 1 else "Historical-only evidence"
+    dashboard_references = [item for item in results + stale if item.get("category") == "Dashboard"]
+    live_states = fetch_live_states()
+    dashboard_health = build_dashboard_health(dashboard_references, registry, live_states)
+    dashboard_health_counts = {status: sum(1 for item in dashboard_health if item["health_status"] == status) for status in ("available", "unavailable", "unknown", "missing", "no_live_state", "not_checked")}
     naming_findings = naming_audit(registry)
     usage_by_entity = {}
     for reference in results:
         usage_by_entity.setdefault(reference["entity_id"], []).append(reference)
     for finding in naming_findings:
         finding["usage"] = usage_by_entity.get(finding["entity_id"], [])
-    readded_pairs, readded_note = detect_readded_pairs(registry, results, fetch_live_states(), load_device_names())
+    readded_pairs, readded_note = detect_readded_pairs(registry, results, live_states, load_device_names())
     clean_name_suggestions = build_clean_name_suggestions(registry, results)
     referenced_entities = {item["entity_id"] for item in results}
     active_entities = {item["entity_id"] for item in results if item["category"] in {"Active configuration", "Dashboard"}}
@@ -689,6 +728,10 @@ def scan():
         "last_scanned_at": scanned_at,
         "category_hits": category_hits,
         "results": results,
+        "dashboard_health": dashboard_health,
+        "dashboard_health_count": len(dashboard_health),
+        "dashboard_health_counts": dashboard_health_counts,
+        "dashboard_health_checked": live_states is not None,
         "potentially_stale": stale,
         "potentially_stale_entities": len({item["entity_id"] for item in stale}),
         "potentially_stale_hits": sum(item["count"] for item in stale),
