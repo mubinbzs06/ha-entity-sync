@@ -603,3 +603,12 @@ class DashboardRouteTests(unittest.TestCase):
 
     def test_missing_dashboard_registry_keeps_default_route(self):
         self.assertEqual(app.dashboard_route_index(), {".storage/lovelace": "/lovelace"})
+
+
+    def test_unique_id_without_matching_integration_is_not_sufficient(self):
+        result = app.evaluate_replacement_identity(
+            {"unique_id": "same-id", "platform": "mqtt"},
+            {"unique_id": "same-id", "platform": "zwave"},
+        )
+        self.assertFalse(result["eligible"])
+        self.assertTrue(result["identity_conflicts"])
