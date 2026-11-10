@@ -70,7 +70,7 @@ class ScannerTests(unittest.TestCase):
 
     def test_report_counts_distinguish_records_entities_and_unreferenced(self):
         (self.root / "automations.yaml").write_text(
-            "entity_id: sensor.known\\nentity_id: sensor.known\\n",
+            "entity_id: sensor.known\nentity_id: sensor.known\n",
             encoding="utf-8",
         )
         (self.root / ".storage" / "core.restore_state").write_text(
@@ -86,7 +86,7 @@ class ScannerTests(unittest.TestCase):
 
     def test_conversation_domain_is_ignored_for_stale_candidates(self):
         (self.root / "automations.yaml").write_text(
-            "entity_id: conversation.home_assistant\\n", encoding="utf-8"
+            "entity_id: conversation.home_assistant\n", encoding="utf-8"
         )
         (self.root / ".storage" / "core.restore_state").write_text(
             '{"entity_id":"conversation.home_assistant"}', encoding="utf-8"
@@ -99,7 +99,7 @@ class ScannerTests(unittest.TestCase):
 
     def test_stale_candidates_rank_active_evidence_before_historical_only(self):
         (self.root / "automations.yaml").write_text(
-            "entity_id: sensor.active_missing\\n", encoding="utf-8"
+            "entity_id: sensor.active_missing\n", encoding="utf-8"
         )
         (self.root / ".storage" / "core.restore_state").write_text(
             '{"entity_id":"sensor.history_missing"}', encoding="utf-8"
