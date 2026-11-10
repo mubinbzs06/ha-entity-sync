@@ -548,6 +548,14 @@ if __name__ == "__main__":
         health = [item for item in report["dashboard_health"] if item["entity_id"] == "sensor.dashboard_missing"]
         self.assertTrue(health)
         self.assertEqual(health[0]["registry_status"], "not_registered")
+    def test_dashboard_health_identifies_nested_lovelace_card(self):
+        dashboard = self.root / ".storage" / "lovelace.dashboard_test"
+        dashboard.write_text(json.dumps({"data": {"config": {"views": [{"cards": [{"type": "sensor", "entity": "sensor.dashboard_missing", "name": "Pi-hole Ads"}]}]}}}), encoding="utf-8")
+        context = app.find_dashboard_card_context(".storage/lovelace.dashboard_test", "sensor.dashboard_missing")
+        self.assertEqual(len(context), 1)
+        self.assertEqual(context[0]["card_type"], "sensor")
+        self.assertEqual(context[0]["card_title"], "Pi-hole Ads")
+        self.assertIn("cards[0]", context[0]["card_path"])
 
 class ReplacementIdentityEvidenceTests(unittest.TestCase):
     def test_evaluator_exposes_strong_match_and_missing_metadata(self):
