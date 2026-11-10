@@ -6,7 +6,7 @@ import re
 from collections import Counter
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 CONFIG = Path("/homeassistant")
 REGISTRY = CONFIG / ".storage" / "core.entity_registry"
@@ -255,6 +255,43 @@ class Handler(BaseHTTPRequestHandler):
         route = urlparse(self.path).path
         if route == "/api/scan":
             payload = json.dumps(scan()).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+        elif route == "/api/file":
+            requested = parse_qs(urlparse(self.path).query).get("path", [""])[0]
+            relative = Path(requested)
+            if not requested or relative.is_absolute() or ".." in relative.parts:
+                self.send_error(400, "Invalid file path")
+                return
+            allowed = {
+                path.relative_to(CONFIG).as_posix(): path
+                for path in candidate_files()
+            }
+            target = allowed.get(relative.as_posix())
+            if target is None:
+                self.send_error(404, "File is not in the read-only audit scope")
+                return
+            try:
+                resolved_config = CONFIG.resolve()
+                resolved_target = target.resolve(strict=True)
+                if not resolved_target.is_relative_to(resolved_config):
+                    self.send_error(404, "File is outside the Home Assistant configuration")
+                    return
+                if not resolved_target.is_file() or resolved_target.stat().st_size > MAX_FILE_BYTES:
+                    self.send_error(404, "File is unavailable")
+                    return
+                content = resolved_target.read_text(encoding="utf-8")
+            except (OSError, UnicodeError):
+                self.send_error(404, "File could not be read as text")
+                return
+            payload = json.dumps({
+                "ok": True,
+                "path": relative.as_posix(),
+                "content": content
+            }).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(payload)))
