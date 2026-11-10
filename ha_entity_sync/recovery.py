@@ -336,8 +336,23 @@ def recover_entity_pair(old_id, replacement_id, fetch_live_states):
         _rename(old_id, temp_id)
 
         entries = _entries([old_id, replacement_id, temp_id])
-        if entries.get(old_id) is not None or not _identity_reason(old_entry, entries.get(temp_id)):
+        if entries.get(old_id) is not None or not _same_identity_snapshot(entries.get(temp_id), _identity_snapshot(old_entry)):
             raise RecoveryError("Original registry entry did not move safely to its rollback ID.")
+
+        # Abort if the old entity is still present/live after its registry entry was moved.
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            states = fetch_live_states()
+            if states is None:
+                raise RecoveryError("Live states became unavailable during recovery.")
+            quarantined = states.get(temp_id)
+            if quarantined and quarantined.get("state") not in {"unavailable", "unknown"}:
+                raise RecoveryError("Original entity became live under the temporary ID; recovery was stopped.")
+            if old_id not in states:
+                break
+            time.sleep(0.25)
+        else:
+            raise RecoveryError("Original state did not leave the original ID after quarantine.")
 
         _update_audit(record_id, {"status": "moving_live_replacement_to_original_id"})
         _rename(replacement_id, old_id)
@@ -349,11 +364,12 @@ def recover_entity_pair(old_id, replacement_id, fetch_live_states):
             live = final_states.get(old_id)
             if (
                 isinstance(final_entries.get(old_id), dict)
-                and _identity_reason(replacement_entry, final_entries[old_id])
+                and _same_identity_snapshot(final_entries[old_id], _identity_snapshot(replacement_entry))
                 and final_entries.get(replacement_id) is None
                 and live and live.get("state") not in {"unavailable", "unknown"}
                 and replacement_id not in final_states
-                and _identity_reason(old_entry, final_entries.get(temp_id))
+                and _same_identity_snapshot(final_entries.get(temp_id), _identity_snapshot(old_entry))
+                and (not final_states.get(temp_id) or final_states[temp_id].get("state") in {"unavailable", "unknown"})
             ):
                 break
             time.sleep(0.5)
@@ -482,10 +498,10 @@ def rollback_entity_recovery(record_id, fetch_live_states):
         # Best-effort compensation returns to the recovered arrangement.
         try:
             entries = _entries([old_id, replacement_id, temp_id])
-            if _identity_reason(quarantined_entry, entries.get(old_id)):
+            if _same_identity_snapshot(entries.get(old_id), record.get("old_identity")):
                 _rename(old_id, temp_id)
             entries = _entries([old_id, replacement_id, temp_id])
-            if _identity_reason(recovered_entry, entries.get(replacement_id)) and entries.get(old_id) is None:
+            if _same_identity_snapshot(entries.get(replacement_id), record.get("replacement_identity")) and entries.get(old_id) is None:
                 _rename(replacement_id, old_id)
         except Exception:
             pass
