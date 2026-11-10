@@ -1,7 +1,7 @@
 name: HA Entity Sync
-version: "0.2.13"
+version: "0.2.14"
 slug: ha_entity_sync
-description: Read-only entity audit with re-add detection and repair planning
+description: Entity audit with explicitly approved, backed-up re-add recovery
 url: https://github.com/mubinbzs06/ha-entity-sync
 arch:
   - aarch64
@@ -9,6 +9,8 @@ arch:
   - armv7
 startup: application
 homeassistant_api: true
+hassio_api: true
+hassio_role: backup
 boot: auto
 init: false
 ingress: true
@@ -19,5 +21,7 @@ map:
   - type: homeassistant_config
     read_only: true
     path: /homeassistant
+  - type: data
+    path: /data
 options: {}
 schema: {}
