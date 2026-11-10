@@ -190,6 +190,7 @@ def naming_audit(registry):
             findings.append({
                 "entity_id": entity_id,
                 "name": item.get("name") or item.get("original_name") or "",
+                "source": item.get("platform") or None,
                 "issues": observations,
             })
     return findings
