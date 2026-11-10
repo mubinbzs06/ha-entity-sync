@@ -23,7 +23,7 @@ All other `.storage` internals remain excluded, including auth data, config entr
 
 ## Naming observations
 
-Numeric suffixes and repeated words remain informational observations. Separate clean-name plans may propose collapsing an immediately repeated name sequence or removing a registry-confirmed integration prefix; they include collision status, confidence, and exact active-reference line previews.
+Numeric suffixes and repeated words remain informational observations. Separate clean-name plans prioritize collapsing an immediately repeated adjacent name sequence. A trailing _2/_3 removal is low-confidence advisory only. Integration-prefix removal is disabled. Duplicate suggested targets and registered-ID collisions are flagged.
 
 ## Naming review usage locations
 
@@ -40,7 +40,7 @@ Each naming observation now includes the registered entity's references found in
 ## Safety and limitations
 
 - The Home Assistant configuration mount remains read-only.
-- Re-add detection reads live Home Assistant states through the Supervisor proxy and corroborates identity using device/config-entry/integration metadata.
+- Re-add detection reads live Home Assistant states through the Supervisor proxy and requires shared unique_id, device ID, or config-entry ID plus platform. Names alone are not identity evidence.
 - Re-add plans require an unavailable/orphaned original entity and a live suffixed replacement. Plans list active dashboard/YAML references that should resolve again after a future approved registry repair.
 - Historical restore-state and trace references are not included in repair plans.
 - The add-on requests Home Assistant API access for read-only state lookup; the configuration mount remains read-only.
@@ -57,3 +57,13 @@ Persistent entity database, scan history/diff, confirmed broken-reference valida
 ## Build 2.10 repair planning boundaries
 
 Re-add recovery and clean-name suggestions are plan-only. No Apply button or write endpoint exists. The planned future Apply phase must use the entity-registry WebSocket API, Lovelace WebSocket API for storage-managed dashboards, atomic YAML/package writes with per-file backups, a verified Supervisor partial backup, a change log, and a tested rollback. The app must not edit .storage files directly or restart Home Assistant automatically.
+
+
+## Runtime safeguards (0.2.12)
+
+- Scanner and viewer reject symbolic links and resolved paths outside the mounted HA configuration.
+- Scan limits: 5,000 files, 100 MB total input, and 5 MB per file. The response includes warnings when a scan is incomplete.
+- The listener starts before any scan; the UI triggers scans on open.
+- `/health` checks for the entity registry; failed scans return HTTP 503.
+- Open the panel through Home Assistant Ingress. Do not expose port 8099 directly.
+- The add-on mount is read-only. The application uses the Supervisor proxy only for GET /api/states and has no service-call or write endpoint.
