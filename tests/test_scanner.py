@@ -58,7 +58,7 @@ class ScannerTests(unittest.TestCase):
         self.assertTrue(report["ok"])
         known = [x for x in report["results"] if x["entity_id"] == "sensor.known"]
         self.assertEqual(len(known), 1)
-        self.assertEqual(known[0]["matches"][0]["line"], 9)
+        self.assertEqual(known[0]["matches"][0]["line"], 8)
         self.assertIn("entity_id: sensor.known", known[0]["matches"][0]["text"])
 
     def test_unregistered_common_domain_is_only_a_candidate(self):
