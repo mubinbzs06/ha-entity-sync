@@ -1,30 +1,41 @@
-# HA Entity Sync — Build 2
+# HA Entity Sync — Build 2.1
 
-Version 0.2.0 remains strictly read-only.
+Version 0.2.1 remains strictly read-only.
 
-## New in Build 2
+## Scan scope (tightened)
 
-- Shows the exact matching source line with each registered-entity reference.
-- Provides a copyable `file:line` location for follow-up in the Home Assistant file editor.
-- Detects *potentially stale reference candidates*: entity-like IDs in recognized entity-reference contexts that are absent from the current entity registry.
-- Audits registered entity IDs for numeric suffixes such as `_2` and repeated words.
-- Shows possible cleaner IDs as suggestions only.
+The scanner now searches user-maintained Home Assistant configuration rather than recursively treating all application files as dependencies.
 
-## Important interpretation rules
+Included:
+- Root Home Assistant YAML/Jinja configuration files.
+- User configuration subfolders such as `packages/` (eligible YAML/Jinja files).
+- Lovelace dashboards stored under `.storage/lovelace*`.
+- Registered entity IDs referenced by those user-owned files, regardless of which integration originally created the entity.
 
-- A potentially stale candidate is **not a confirmed broken reference**. It may be historical, integration-managed, temporarily unavailable, or valid in a context the scanner cannot understand.
-- Candidate detection is deliberately conservative. It checks common Home Assistant domains and explicit entity-reference contexts; custom domains and unusual templates may be missed.
-- A numeric suffix is not proof of a duplicate. A matching base entity is shown when one exists.
-- Suggested IDs are not checked as a complete rename plan and must not be applied without checking uniqueness and dependencies.
+Excluded:
+- All other `.storage` internals, including entity registry, restore state, traces, config entries, and integration metadata. The entity registry is read separately only to build the registered-entity list.
+- Home Assistant and add-on implementation folders such as `custom_components/`, `deps/`, `node_modules/`, AppDaemon, Pyscript, ESPHome, Zigbee2MQTT, and Node-RED.
+- Backups and archives, including backup/archive/snapshot-named files or folders and archive/database/temporary file formats.
+- Secrets, auth/token files, databases, logs, media, `www/`, and shared runtime data.
 
-## Scan behavior and safety
+## Build 2 audit features
 
-- Entity IDs are read from `.storage/core.entity_registry`.
-- References are searched in eligible text files under the Home Assistant configuration directory, including extensionless JSON files under `.storage`.
-- Secret files, database files, backups, logs, media, and `www` are excluded.
-- The app does not write to `/homeassistant`, call Home Assistant services, rename entities, or modify configuration.
+- Shows exact matching source lines and copyable `file:line` locations.
+- Finds conservative potentially-stale entity IDs in explicit reference contexts. These are candidates, not confirmed broken references.
+- Flags numeric suffixes such as `_2` and repeated words with suggestions only.
+
+## Interpretation and limitations
+
+- Integration-created entities remain in the registry and are counted when a user dashboard or configuration file references them. We exclude integration implementation files, not entities that users depend on.
+- Home Assistant internal files and other apps' code are not considered user dependencies by default.
+- A stale candidate may be historical, integration-managed, temporarily unavailable, or valid in a context the scanner cannot understand.
+- Candidate detection uses common Home Assistant domains and explicit reference contexts; custom domains and unusual syntax may be missed.
+- Backup files are excluded from both normal reference results and stale-candidate results.
+
+## Safety
+
+- The Home Assistant configuration mount remains read-only.
+- No entity rename, configuration write, service call, backup/restore, or HA restart is implemented.
 - POST requests remain disabled.
 
-## Not included yet
-
-The central persistent entity database, scan history/diff, confirmed broken-reference validation, native rename handoff, impact previews, verified backup/rollback, and approved repair workflow are not implemented in this build. Any future file modification must require a verified backup, explicit approval, and a usable rollback path.
+The persistent entity database, scan history/diff, confirmed broken-reference validation, impact previews, verified backup/rollback, and approved repair workflow remain future work. Any future modification must require a verified backup, explicit approval, and a usable rollback path.

@@ -83,5 +83,47 @@ class ScannerTests(unittest.TestCase):
         )
 
 
+
+    def test_scan_scope_includes_user_config_and_dashboard_but_excludes_internal_and_backup(self):
+        (self.root / "packages").mkdir()
+        (self.root / "packages" / "lights.yaml").write_text(
+            "entity_id: sensor.known\\n", encoding="utf-8"
+        )
+        (self.root / ".storage" / "lovelace.dashboard_test").write_text(
+            '{"entity":"sensor.known"}', encoding="utf-8"
+        )
+        (self.root / ".storage" / "core.restore_state").write_text(
+            '{"entity_id":"sensor.known"}', encoding="utf-8"
+        )
+        (self.root / ".storage" / "trace.saved_traces").write_text(
+            '{"entity_id":"sensor.known"}', encoding="utf-8"
+        )
+        custom = self.root / "custom_components" / "demo"
+        custom.mkdir(parents=True)
+        (custom / "sensor.py").write_text(
+            'entity_id: "sensor.known"\\n', encoding="utf-8"
+        )
+        backup = self.root / "backups" / "old"
+        backup.mkdir(parents=True)
+        (backup / "automations.yaml").write_text(
+            "entity_id: sensor.known\\n", encoding="utf-8"
+        )
+        (self.root / "automations_backup.yaml").write_text(
+            "entity_id: sensor.known\\n", encoding="utf-8"
+        )
+        included = {
+            path.relative_to(self.root).as_posix()
+            for path in app.candidate_files()
+        }
+        self.assertIn("automations.yaml", included)
+        self.assertIn("packages/lights.yaml", included)
+        self.assertIn(".storage/lovelace.dashboard_test", included)
+        self.assertNotIn(".storage/core.restore_state", included)
+        self.assertNotIn(".storage/trace.saved_traces", included)
+        self.assertNotIn("custom_components/demo/sensor.py", included)
+        self.assertNotIn("backups/old/automations.yaml", included)
+        self.assertNotIn("automations_backup.yaml", included)
+
+
 if __name__ == "__main__":
     unittest.main()
