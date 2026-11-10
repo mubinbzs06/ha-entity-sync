@@ -55,3 +55,12 @@ The app mounts Home Assistant configuration at `/homeassistant` **read-only**. I
 - Persistent entity database, scan history, confirmed stale validation, impact previews, verified backup/rollback, and approved repair are future work.
 
 **Golden rule:** no future modification without a verified backup, explicit approval, and a usable rollback path.
+
+
+## Scan performance, counts, and exports (0.2.9)
+
+- The add-on logs its version and listening port at startup, then logs scan duration and a count summary.
+- Scan results are cached in memory for 60 seconds. Opening the panel reuses a fresh cached report; use **Rescan** to force a new scan.
+- Counts distinguish registered entities, entities with active references, historical-only entities, needs-review-only entities, unreferenced entities, reference records (entity/file/category groups), and reference hits (occurrences).
+- Export JSON or CSV for active dependencies, needs-review references, and stale candidates. Exports are generated in the browser and do not modify Home Assistant files.
+- Stale candidates with active/dashboard evidence rank above historical-only candidates. The built-in `conversation` domain is excluded from stale-candidate detection to reduce false positives.
