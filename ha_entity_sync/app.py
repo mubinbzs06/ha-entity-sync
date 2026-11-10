@@ -438,8 +438,9 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     print(f"HA Entity Sync version {VERSION} starting on 0.0.0.0:{PORT} (read-only; scan cache {SCAN_CACHE_SECONDS}s)", flush=True)
     print(f"HA Entity Sync listening on 0.0.0.0:{PORT}", flush=True)
     print("HA Entity Sync: performing startup scan", flush=True)
     get_scan_report(force=True)
-    ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+    server.serve_forever()
