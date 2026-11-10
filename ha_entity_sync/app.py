@@ -338,7 +338,7 @@ def evaluate_replacement_identity(old, replacement):
 
     # A config-entry match is strong only when its integration also matches.
     config_pair_match = config_match and platform_match
-    strong_match = unique_match or device_match or config_pair_match
+    strong_match = platform_match and (unique_match or device_match or config_pair_match)
     if old.get("platform") and replacement.get("platform") and old.get("platform") == replacement.get("platform"):
         evidence.append({
             "type": "Platform compatibility",
