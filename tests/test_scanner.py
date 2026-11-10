@@ -68,6 +68,60 @@ class ScannerTests(unittest.TestCase):
         self.assertNotIn("custom_domain.unknown", ids)
         self.assertIn("candidate", {x["confidence"] for x in report["potentially_stale"]})
 
+    def test_report_counts_distinguish_records_entities_and_unreferenced(self):
+        (self.root / "automations.yaml").write_text(
+            "entity_id: sensor.known\\nentity_id: sensor.known\\n",
+            encoding="utf-8",
+        )
+        (self.root / ".storage" / "core.restore_state").write_text(
+            '{"entity_id":"sensor.fan_speed_2"}', encoding="utf-8"
+        )
+        report = app.scan()
+        self.assertEqual(report["registered_entities"], 4)
+        self.assertEqual(report["entities_with_active_references"], 1)
+        self.assertEqual(report["entities_with_historical_only_references"], 1)
+        self.assertEqual(report["unreferenced_entities"], 2)
+        self.assertEqual(report["reference_records"], len(report["results"]))
+        self.assertEqual(report["reference_hits"], sum(x["count"] for x in report["results"]))
+
+    def test_conversation_domain_is_ignored_for_stale_candidates(self):
+        (self.root / "automations.yaml").write_text(
+            "entity_id: conversation.home_assistant\\n", encoding="utf-8"
+        )
+        (self.root / ".storage" / "core.restore_state").write_text(
+            '{"entity_id":"conversation.home_assistant"}', encoding="utf-8"
+        )
+        report = app.scan()
+        self.assertNotIn(
+            "conversation.home_assistant",
+            {item["entity_id"] for item in report["potentially_stale"]},
+        )
+
+    def test_stale_candidates_rank_active_evidence_before_historical_only(self):
+        (self.root / "automations.yaml").write_text(
+            "entity_id: sensor.active_missing\\n", encoding="utf-8"
+        )
+        (self.root / ".storage" / "core.restore_state").write_text(
+            '{"entity_id":"sensor.history_missing"}', encoding="utf-8"
+        )
+        report = app.scan()
+        candidates = report["potentially_stale"]
+        self.assertEqual(candidates[0]["entity_id"], "sensor.active_missing")
+        history = next(x for x in candidates if x["entity_id"] == "sensor.history_missing")
+        self.assertEqual(history["priority"], "Historical-only evidence")
+
+    def test_scan_cache_reuses_recent_result_and_force_rescans(self):
+        app._scan_cache.update({"report": None, "created": 0.0})
+        with patch.object(app, "scan", return_value={"ok": True, "marker": 1}) as scan_mock:
+            first = app.get_scan_report()
+            second = app.get_scan_report()
+            self.assertFalse(first["cache_hit"])
+            self.assertTrue(second["cache_hit"])
+            self.assertEqual(scan_mock.call_count, 1)
+            app.get_scan_report(force=True)
+            self.assertEqual(scan_mock.call_count, 2)
+        app._scan_cache.update({"report": None, "created": 0.0})
+
     def test_naming_patterns_are_informational_not_rename_recommendations(self):
         report = app.scan()
         findings = {x["entity_id"]: x for x in report["naming_findings"]}
