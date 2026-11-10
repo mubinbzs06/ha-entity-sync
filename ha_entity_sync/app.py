@@ -163,6 +163,38 @@ def classify_reference(path):
     return "Needs review"
 
 
+def suggest_entity_names(entity_id, occupied):
+    """Return advisory, unique alternatives without changing the registered ID."""
+    domain, object_id = entity_id.split(".", 1)
+    words = [word for word in object_id.split("_") if word]
+    candidates = []
+
+    # Remove a trailing numeric suffix only as a candidate, never as an assumption.
+    base_words = words[:-1] if words and words[-1].isdigit() else words[:]
+    # Collapse repeated tokens while preserving their original order.
+    deduped = []
+    for word in base_words:
+        if word not in deduped:
+            deduped.append(word)
+
+    def add(parts):
+        candidate = domain + "." + "_".join(parts)
+        if parts and candidate != entity_id and candidate not in occupied and candidate not in candidates:
+            candidates.append(candidate)
+
+    add(deduped)
+
+    # If the original object ID is overly verbose, offer a compact form by
+    # removing generic trailing descriptors, but keep at least two meaningful tokens.
+    generic = {"sensor", "device", "entity", "value", "reading"}
+    compact = deduped[:]
+    while len(compact) > 2 and compact[-1] in generic:
+        compact.pop()
+    add(compact)
+
+    return candidates[:3]
+
+
 def naming_audit(registry):
     ids = {item["entity_id"] for item in registry}
     findings = []
@@ -190,10 +222,11 @@ def naming_audit(registry):
             findings.append({
                 "entity_id": entity_id,
                 "name": item.get("name") or item.get("original_name") or "",
+                "source": item.get("platform") or None,
                 "issues": observations,
+                "suggestions": suggest_entity_names(entity_id, ids),
             })
     return findings
-
 
 def scan():
     if not REGISTRY.exists():
@@ -224,7 +257,7 @@ def scan():
                 entity_id = match.group(0)
                 start = max(0, match.start() - 100)
                 end = min(len(line), match.end() + 100)
-                evidence = {"line": line_no, "text": line[start:end].strip()[:500]}
+                evidence = {"line": line_no, "text": line[start:end].strip()[:500], "full_text": line[:10000], "full_text_truncated": len(line) > 10000}
                 if entity_id in known:
                     key = (entity_id, rel)
                     entry = references.setdefault(key, {

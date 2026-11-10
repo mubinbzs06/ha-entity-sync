@@ -83,6 +83,59 @@ class ScannerTests(unittest.TestCase):
 
 
 
+    def test_reference_evidence_keeps_full_line_for_expansion(self):
+        full_line = "  entity_id: sensor.known # " + ("extra-context " * 60)
+        (self.root / "automations.yaml").write_text(full_line + "\n", encoding="utf-8")
+        report = app.scan()
+        reference = next(
+            item for item in report["results"]
+            if item["entity_id"] == "sensor.known"
+        )
+        evidence = reference["matches"][0]
+        self.assertEqual(evidence["full_text"], full_line)
+        self.assertFalse(evidence["full_text_truncated"])
+        self.assertLessEqual(len(evidence["text"]), 500)
+
+    def test_naming_suggestions_are_unique_advisory_and_keep_domain(self):
+        occupied = {
+            "sensor.bathroom_temperature_2",
+            "sensor.bathroom_temperature",
+        }
+        suggestions = app.suggest_entity_names(
+            "sensor.bathroom_temperature_sensor_2", occupied
+        )
+        self.assertTrue(suggestions)
+        self.assertTrue(all(item.startswith("sensor.") for item in suggestions))
+        self.assertEqual(len(suggestions), len(set(suggestions)))
+        self.assertNotIn("sensor.bathroom_temperature", suggestions)
+        self.assertNotIn("sensor.bathroom_temperature_sensor_2", suggestions)
+
+    def test_naming_suggestions_collapse_repeated_words(self):
+        suggestions = app.suggest_entity_names(
+            "light.kitchen_kitchen_ceiling_2",
+            {"light.kitchen_kitchen_ceiling_2"},
+        )
+        self.assertIn("light.kitchen_ceiling", suggestions)
+
+    def test_naming_finding_exposes_entity_source_from_registry(self):
+        registry = {
+            "data": {
+                "entities": [
+                    {"entity_id": "sensor.known", "platform": "mqtt"},
+                    {"entity_id": "sensor.fan_speed_2", "platform": "mqtt"},
+                ]
+            }
+        }
+        (self.root / ".storage" / "core.entity_registry").write_text(
+            json.dumps(registry), encoding="utf-8"
+        )
+        report = app.scan()
+        finding = next(
+            item for item in report["naming_findings"]
+            if item["entity_id"] == "sensor.fan_speed_2"
+        )
+        self.assertEqual(finding["source"], "mqtt")
+
     def test_naming_findings_include_active_and_historical_usage_locations(self):
         (self.root / "automations.yaml").write_text(
             "action:\n"

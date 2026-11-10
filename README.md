@@ -4,7 +4,7 @@ A local Home Assistant OS app for **read-only entity reference auditing**.
 
 ## Current build
 
-**Build 2.8 · Version 0.2.8** scans user-maintained Home Assistant configuration, Lovelace dashboards, and a small allowlist of historical storage records.
+**Build 2.9 · Version 0.2.9** scans user-maintained Home Assistant configuration, Lovelace dashboards, and a small allowlist of historical storage records.
 
 It excludes unrelated Home Assistant internals, integration/add-on implementation folders, backups, archives, databases, logs, secrets, and runtime data.
 
@@ -20,7 +20,8 @@ Entities created by integrations are still tracked in the entity registry and ap
 - Active dependencies, historical references, and unclassified references are kept distinct.
 - Historical hits are not counted as active dependencies and do not by themselves justify deleting or renaming an entity.
 - Naming observations are informational only; numeric suffixes and repeated words are not treated as problems or rename recommendations.
-- Naming findings show where each entity is referenced, with active and historical usage separated and exact file/line evidence.
+- Naming findings show the entity source/integration when recorded in the entity registry.
+- Usage evidence is grouped by file, with clickable line numbers, compact previews, expandable full references, and the investigated entity highlighted in both previews and the read-only file viewer.
 
 ## Scan scope
 
