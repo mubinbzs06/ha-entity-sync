@@ -11,8 +11,9 @@ from urllib.parse import parse_qs, urlparse
 CONFIG = Path("/homeassistant")
 REGISTRY = CONFIG / ".storage" / "core.entity_registry"
 MAX_FILE_BYTES = 5 * 1024 * 1024
-# Search user-maintained configuration, not HA internals or app implementation.
-# Dashboard storage is the one deliberate exception inside .storage.
+HISTORICAL_STORAGE_NAMES = {"core.restore_state", "trace.saved_traces"}
+# Search user-maintained configuration plus a small, explicit historical-storage allowlist.
+# Never traverse all of .storage: most files are HA internals or credentials.
 SKIP_DIRS = {
     ".git", "backups", "backup", "deps", "tts", "__pycache__",
     "www", "media", "share", "blueprints_cache", "custom_components",
@@ -88,7 +89,7 @@ def candidate_files():
         if relative_root == Path(".storage"):
             dirs[:] = []
             for name in names:
-                if not name.startswith("lovelace"):
+                if not (name.startswith("lovelace") or name in HISTORICAL_STORAGE_NAMES):
                     continue
                 path = root_path / name
                 if is_backup_path(path) or name in SKIP_NAMES:
@@ -155,6 +156,8 @@ def classify_reference(path):
     name = path.name.lower()
     if rel.startswith(".storage/lovelace"):
         return "Dashboard"
+    if rel.startswith(".storage/") and path.name in HISTORICAL_STORAGE_NAMES:
+        return "Historical"
     if path.suffix.lower() in {".yaml", ".yml", ".jinja", ".jinja2"}:
         return "Active configuration"
     return "Needs review"
@@ -166,37 +169,28 @@ def naming_audit(registry):
     for item in registry:
         entity_id = item["entity_id"]
         domain, object_id = entity_id.split(".", 1)
-        issues = []
-        suggestion = object_id
+        observations = []
         suffix = NUMERIC_SUFFIX_RE.search(object_id)
         if suffix:
             base_object = object_id[:suffix.start()]
             base_id = domain + "." + base_object
-            issues.append({
-                "type": "Numeric suffix",
-                "detail": "A trailing _" + suffix.group(1) + " may indicate a duplicate or an earlier naming collision.",
+            observations.append({
+                "type": "Numeric suffix (informational)",
+                "detail": "This suffix may be intentional, including when multiple devices or entities share a name. It is not a problem by itself.",
                 "matching_base": base_id if base_id in ids else None
             })
-            if base_id in ids:
-                suggestion = base_object
         words = [word for word in object_id.split("_") if word]
         repeated = sorted({word for word, count in Counter(words).items() if count > 1})
         if repeated:
-            issues.append({
-                "type": "Repeated words",
-                "detail": "Repeated token(s): " + ", ".join(repeated)
+            observations.append({
+                "type": "Repeated words (informational)",
+                "detail": "Repeated token(s): " + ", ".join(repeated) + ". This may be intentional and is not a problem by itself."
             })
-            compact = []
-            for word in words:
-                if word not in compact:
-                    compact.append(word)
-            suggestion = "_".join(compact)
-        if issues:
+        if observations:
             findings.append({
                 "entity_id": entity_id,
                 "name": item.get("name") or item.get("original_name") or "",
-                "issues": issues,
-                "suggested_entity_id": domain + "." + suggestion,
+                "issues": observations,
             })
     return findings
 
@@ -228,7 +222,9 @@ def scan():
             matches = list(ENTITY_RE.finditer(line))
             for match in matches:
                 entity_id = match.group(0)
-                evidence = {"line": line_no, "text": line.strip()[:500]}
+                start = max(0, match.start() - 100)
+                end = min(len(line), match.end() + 100)
+                evidence = {"line": line_no, "text": line[start:end].strip()[:500]}
                 if entity_id in known:
                     key = (entity_id, rel)
                     entry = references.setdefault(key, {
@@ -239,13 +235,19 @@ def scan():
                     if len(entry["matches"]) < 30:
                         entry["lines"].append(line_no)
                         entry["matches"].append(evidence)
-                elif entity_id.split(".", 1)[0] in known_domains and ENTITY_CONTEXT_RE.search(line):
+                elif entity_id.split(".", 1)[0] in known_domains and (
+                    category == "Historical" or ENTITY_CONTEXT_RE.search(line)
+                ):
                     key = (entity_id, rel)
                     entry = candidates.setdefault(key, {
                         "entity_id": entity_id, "file": rel, "category": category,
                         "count": 0, "lines": [], "matches": [],
                         "confidence": "candidate",
-                        "reason": "Entity-like ID in an entity-reference context, but absent from the current registry."
+                        "reason": (
+                            "Historical record contains an entity-like ID absent from the current registry."
+                            if category == "Historical"
+                            else "Entity-like ID in an entity-reference context, but absent from the current registry."
+                        )
                     })
                     entry["count"] += 1
                     if len(entry["matches"]) < 30:

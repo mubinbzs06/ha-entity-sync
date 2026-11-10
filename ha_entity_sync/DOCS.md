@@ -1,6 +1,6 @@
-# HA Entity Sync — Build 2.5
+# HA Entity Sync — Build 2.7
 
-Version 0.2.5 remains strictly read-only.
+Version 0.2.6 remains strictly read-only.
 
 ## File navigation
 
@@ -52,3 +52,12 @@ Excluded:
 - POST requests remain disabled.
 
 The persistent entity database, scan history/diff, confirmed broken-reference validation, impact previews, verified backup/rollback, and approved repair workflow remain future work. Any future modification must require a verified backup, explicit approval, and a usable rollback path.
+
+
+## Historical reference audit (Build 2.7)
+
+- The scanner includes only two additional `.storage` files: `.storage/core.restore_state` and `.storage/trace.saved_traces`.
+- Historical hits are categorized separately from active configuration and dashboard dependencies.
+- Unregistered entity-like IDs in those historical files are shown as historical candidates, not confirmed broken dependencies.
+- All other `.storage` internals remain excluded. The existing file-size limit, backup exclusions, read-only mount, and file-viewer scope checks remain in force.
+- Naming review is informational: numeric suffixes and repeated words are observations only. The app does not generate replacement IDs or imply that these patterns should be changed.

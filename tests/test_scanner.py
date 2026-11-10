@@ -68,19 +68,18 @@ class ScannerTests(unittest.TestCase):
         self.assertNotIn("custom_domain.unknown", ids)
         self.assertIn("candidate", {x["confidence"] for x in report["potentially_stale"]})
 
-    def test_naming_audit_flags_suffix_and_repeated_words(self):
+    def test_naming_patterns_are_informational_not_rename_recommendations(self):
         report = app.scan()
         findings = {x["entity_id"]: x for x in report["naming_findings"]}
         self.assertIn("sensor.fan_speed_2", findings)
+        self.assertIn("informational", findings["sensor.fan_speed_2"]["issues"][0]["type"])
         self.assertEqual(
             findings["sensor.fan_speed_2"]["issues"][0]["matching_base"],
             "sensor.fan_speed",
         )
         self.assertIn("sensor.room_room_temperature", findings)
-        self.assertEqual(
-            findings["sensor.room_room_temperature"]["suggested_entity_id"],
-            "sensor.room_temperature",
-        )
+        self.assertIn("informational", findings["sensor.room_room_temperature"]["issues"][0]["type"])
+        self.assertNotIn("suggested_entity_id", findings["sensor.room_room_temperature"])
 
 
 
@@ -118,12 +117,25 @@ class ScannerTests(unittest.TestCase):
         self.assertIn("automations.yaml", included)
         self.assertIn("packages/lights.yaml", included)
         self.assertIn(".storage/lovelace.dashboard_test", included)
-        self.assertNotIn(".storage/core.restore_state", included)
-        self.assertNotIn(".storage/trace.saved_traces", included)
+        self.assertIn(".storage/core.restore_state", included)
+        self.assertIn(".storage/trace.saved_traces", included)
         self.assertNotIn("custom_components/demo/sensor.py", included)
         self.assertNotIn("backups/old/automations.yaml", included)
         self.assertNotIn("automations_backup.yaml", included)
 
+
+    def test_historical_references_are_separated_from_active_dependencies(self):
+        (self.root / ".storage" / "core.restore_state").write_text(
+            '{"entity_id":"sensor.known","old":"sensor.retired"}', encoding="utf-8"
+        )
+        report = app.scan()
+        historical = [x for x in report["results"] if x["file"] == ".storage/core.restore_state"]
+        self.assertTrue(historical)
+        self.assertTrue(all(x["category"] == "Historical" for x in historical))
+        retired = [x for x in report["potentially_stale"] if x["entity_id"] == "sensor.retired"]
+        self.assertEqual(len(retired), 1)
+        self.assertEqual(retired[0]["category"], "Historical")
+        self.assertIn("sensor.retired", retired[0]["matches"][0]["text"])
 
     def test_file_viewer_reads_only_scanner_approved_files(self):
         (self.root / "automations.yaml").write_text(
