@@ -686,8 +686,22 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(405, "Only approved entity recovery actions are accepted")
             return
         origin = self.headers.get("Origin")
-        host = self.headers.get("Host")
-        if not origin or not host or urlparse(origin).netloc != host:
+        host_values = [
+            self.headers.get("Host"),
+            self.headers.get("X-Forwarded-Host"),
+            self.headers.get("X-Original-Host"),
+        ]
+        allowed_hosts = {
+            urlparse("//" + value).hostname
+            for value in host_values if value
+        }
+        origin_host = urlparse(origin).hostname if origin else None
+        fetch_site = self.headers.get("Sec-Fetch-Site")
+        if (
+            not origin_host
+            or origin_host not in allowed_hosts
+            or (fetch_site and fetch_site not in {"same-origin", "same-site"})
+        ):
             self.send_error(403, "Recovery requests must originate from this Home Assistant ingress page")
             return
         if self.headers.get("X-HA-Entity-Sync-Action") != "approve":
