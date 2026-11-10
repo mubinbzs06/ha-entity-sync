@@ -256,6 +256,12 @@ def scan():
 
     results = sorted(references.values(), key=lambda x: (x["entity_id"], x["file"]))
     stale = sorted(candidates.values(), key=lambda x: (x["entity_id"], x["file"]))
+    naming_findings = naming_audit(registry)
+    usage_by_entity = {}
+    for reference in results:
+        usage_by_entity.setdefault(reference["entity_id"], []).append(reference)
+    for finding in naming_findings:
+        finding["usage"] = usage_by_entity.get(finding["entity_id"], [])
     by_entity = {item["entity_id"] for item in results}
     category_hits = {
         category: sum(item["count"] for item in results if item["category"] == category)
@@ -273,8 +279,8 @@ def scan():
         "potentially_stale": stale,
         "potentially_stale_entities": len({item["entity_id"] for item in stale}),
         "potentially_stale_hits": sum(item["count"] for item in stale),
-        "naming_findings": naming_audit(registry),
-        "naming_findings_count": len(naming_audit(registry)),
+        "naming_findings": naming_findings,
+        "naming_findings_count": len(naming_findings),
         "audit_note": "Potentially stale entries are candidates for review, not confirmed broken references."
     }
 
