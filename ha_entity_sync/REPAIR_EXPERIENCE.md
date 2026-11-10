@@ -51,6 +51,29 @@ This is not a redesign and is not an Energy Dashboard milestone.
 5. Surface the evidence breakdown in the existing candidate card without changing the overall layout or recovery workflow.
 6. Run the full test suite and container smoke checks. Do not merge or release until they pass.
 
+## End-to-end dashboard repair experience
+
+Dashboard repair is part of this same milestone, not a later optional add-on.
+
+### Before approval
+- Identify the exact Lovelace dashboard and card containing the affected entity.
+- Show the card's current configuration and the exact entity reference being repaired.
+- Where the dashboard/card can be faithfully rendered, show a before/after preview in Entity Sync.
+- If only stored configuration is available, label it as a configuration preview; never present a mock rendering as a live dashboard.
+- Show the proposed entity replacement and all affected dashboard/configuration references together.
+
+### Approved repair
+- Preserve the existing verified-backup, explicit-approval, repair, audit, and rollback sequence.
+- Update only the exact references listed in the approved repair plan.
+- Do not perform broad text replacement across dashboard storage or YAML.
+
+### After repair: three independent checks
+1. **Entity registry:** confirm the intended entity identity is registered under the expected ID and the quarantined original remains available for rollback.
+2. **Dashboard configuration:** re-read the affected dashboard and confirm the exact card references now point to the intended entity.
+3. **Rendered card:** where technically accessible, verify the card renders and displays a valid live state. A successful registry rename or valid stored reference is not proof that the rendered card works.
+
+Report each check separately as passed, failed, or not verifiable. If Home Assistant does not expose a trustworthy rendered-card verification path, say so plainly and provide a direct way to inspect the affected dashboard. Never claim full visual verification based only on registry/configuration checks.
+
 ## Non-goals
 
 - No new Energy Dashboard feature in this milestone.
