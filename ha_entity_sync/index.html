@@ -84,6 +84,13 @@ main{padding:28px clamp(16px,3vw,42px);min-width:0}.top{display:flex;align-items
 .export-toolbar{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 16px}
 .dashboard-live-preview{margin:10px 0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--panel)}.dashboard-live-preview iframe{display:block;width:100%;height:520px;border:0;background:#111}.dashboard-preview-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:8px 10px}.dashboard-preview-toolbar span{font-size:11px;color:var(--muted)}.dashboard-preview-button{margin:6px 0;padding:7px 10px;border:1px solid var(--line);border-radius:7px;background:var(--panel);color:var(--text);font-size:12px}.recover-action{margin:8px 0 4px}.rollback-action{margin:8px 0 4px;border:1px solid var(--amber);color:var(--amber)}.recovery-note{font-size:12px;color:var(--muted);margin:4px 0 10px}.recovery-history-meta{font-size:12px;color:var(--muted);overflow-wrap:anywhere}.recovery-history-status{font-weight:750;text-transform:capitalize}
 .repair-controls{margin:10px 0 14px;padding:12px;border:1px solid var(--line);border-radius:9px;background:var(--panel)}.repair-controls label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}.repair-controls input{width:100%;padding:9px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--text);margin-bottom:8px}.repair-diff{display:grid;gap:8px;margin:10px 0}.repair-diff pre{white-space:pre-wrap;overflow-wrap:anywhere;padding:10px;border-radius:7px;background:var(--bg);font-size:12px}.repair-diff .before{border-left:3px solid var(--red)}.repair-diff .after{border-left:3px solid var(--green)}.repair-apply{margin-top:8px}.workspace{margin:28px 0 34px;scroll-margin-top:20px}.workspace-head{display:flex;align-items:end;justify-content:space-between;gap:14px;margin:0 0 14px}.workspace-head h2{font-size:21px;margin:3px 0}.workspace-head p{color:var(--muted);font-size:13px;margin:3px 0 0;max-width:720px}.stat-primary{border-color:#39776d;background:linear-gradient(145deg,#17312f,#18242e)}.stat-primary .num{color:var(--accent)}.stat-hint{font-size:11px;color:var(--muted);margin-top:5px}.nav a{font-size:13px}.workspace .audit-section{margin-top:11px}.workspace .section-head{margin-top:0}
+
+.broken-entity-panel,.possible-match-panel{border:1px solid var(--line);border-radius:12px;padding:12px;margin:12px 0;background:var(--surface-2,var(--surface));}
+.broken-entity-id{font:600 1rem ui-monospace,monospace;overflow-wrap:anywhere;margin:6px 0;}
+.possible-match-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid var(--line);flex-wrap:wrap;}
+.match-score{display:block;color:var(--muted);font-size:.82rem;margin-top:4px;}
+.reference-location{margin:14px 0;padding-top:10px;border-top:1px solid var(--line);}
+.repair-search{margin:14px 0;}
 </style>
 </head>
 <body>
@@ -115,6 +122,7 @@ main{padding:28px clamp(16px,3vw,42px);min-width:0}.top{display:flex;align-items
   <div class="notice secondary">A missing entity ID is a candidate until checked against live Home Assistant state. Similar names are discovery hints, never proof of identity. Every configuration repair requires a verified backup, preview, your approval, and rollback.</div>
   <section id="repairCenter" class="workspace">
     <div class="workspace-head"><div><div class="eyebrow">01 · Investigate and fix</div><h2>Repair Center</h2><p>Broken references, affected locations, replacement evidence, and the repair-and-verify workflow.</p></div></div>
+    <div class="search-sticky repair-search"><input class="search" id="repairFilter" type="search" placeholder="Search broken entity IDs, possible matches, or files…" aria-label="Search broken entity IDs, possible matches, or files"></div>
     <details class="audit-section" id="staleSection" open><summary class="audit-toggle">Broken references to investigate</summary><p class="intro">Find entity IDs referenced by your configuration but missing from the current registry or live state. Review exact usage and replacement evidence before any repair.</p><div id="staleResults"><div class="empty">Run a scan to check for candidates.</div></div></details>
     <details class="audit-section" id="dashboardHealthSection"><summary class="audit-toggle">Dashboard health and live preview</summary><p class="intro">Check dashboard references against registry and live states, then inspect the affected dashboard in the same workflow.</p><div id="dashboardHealthResults"><div class="empty">Run a scan to check dashboard references.</div></div></details>
     <details class="audit-section" id="readdedSection"><summary class="audit-toggle">Re-added device recovery</summary><p class="intro">Strong identity evidence is required. Each approved action creates and verifies a Home Assistant backup, quarantines the old entry, verifies the replacement, and retains an undo path.</p><div id="readdedResults"><div class="empty">Run a scan to check for re-added devices.</div></div></details>
@@ -215,14 +223,33 @@ function renderDashboardHealth(){
  ).join("");
 }
 function renderStale(){
- const q=$('filter').value.trim().toLowerCase();
- const rows=(report?.potentially_stale||[]).filter(x=>(x.entity_id+' '+x.file+' '+(x.priority||'')).toLowerCase().includes(q));
+ const q=$('repairFilter').value.trim().toLowerCase();
+ const rows=(report?.potentially_stale||[]).filter(x=>{
+  const suggestion=x.replacement_suggestion||{};
+  const possible=(suggestion.candidates||[]).map(candidate=>candidate.entity_id).join(' ');
+  return (x.entity_id+' '+x.file+' '+(x.priority||'')+' '+possible+' '+(suggestion.deleted_platform||'')).toLowerCase().includes(q);
+ });
  const entities=new Map();
  for(const item of rows){if(!entities.has(item.entity_id))entities.set(item.entity_id,[]);entities.get(item.entity_id).push(item);}
- if(!entities.size){$('staleResults').innerHTML='<div class="empty">No candidate matches in this scan.</div>';return;}
- $('staleResults').innerHTML=[...entities.entries()].map(([id,refs])=>'<details class="candidate"><summary><span class="entity-id">'+esc(id)+'</span><span class="count">'+refs.reduce((n,r)=>n+r.count,0)+' candidate hit(s) · '+refs.length+' file(s)</span></summary><p><b>'+esc(refs[0].priority||'Needs review')+'</b> · Not in the current entity registry. This may be stale, historical, integration-managed, or otherwise valid in context.</p>'+refs.map(ref=>evidenceHtml(ref)+
-  (ref.category==='Historical'?'':'<div class="repair-controls"><label>Replacement entity ID</label><input type="text" class="repair-replacement" placeholder="Enter verified existing entity ID" autocomplete="off"><button class="quiet" type="button" data-repair-preview="1" data-old-id="'+esc(id)+'" data-file="'+esc(ref.file)+'">Preview reference repair</button><div class="repair-preview"></div></div>')
- ).join('')+'</details>').join('');
+ if(!entities.size){$('staleResults').innerHTML='<div class="empty">No broken-reference candidates match this search.</div>';return;}
+ $('staleResults').innerHTML=[...entities.entries()].map(([id,refs])=>{
+  const suggestion=refs[0].replacement_suggestion||{};
+  const matches=suggestion.candidates||[];
+  const deleted=suggestion.deleted_history_found
+   ? '<p class="recovery-note">Deleted entity history'+(suggestion.deleted_platform?' · Integration: <b>'+esc(suggestion.deleted_platform)+'</b>':'')+(suggestion.deleted_at?' · Recorded: '+esc(suggestion.deleted_at):'')+'</p>'
+   : '';
+  return '<details class="candidate"><summary><span class="entity-id">'+esc(id)+'</span><span class="count">'+refs.reduce((n,r)=>n+r.count,0)+' reference(s) · '+refs.length+' file(s)</span></summary>'+
+   '<div class="broken-entity-panel"><div class="eyebrow">Broken entity</div><div class="broken-entity-id">'+esc(id)+'</div><p>'+esc(refs[0].broken_status==='confirmed_missing'?'Confirmed absent from registry and live states.':'Not confirmed: live Home Assistant state could not be checked.')+'</p></div>'+
+   '<p><b>'+esc(refs[0].priority||'Needs review')+'</b> · '+esc(refs[0].reason||'This entity-like ID is absent from the current registry.')+'</p>'+deleted+
+   '<div class="possible-match-panel"><b>Possible match</b>'+
+    (matches.length?'<p class="recovery-note">Ranked by same-domain entity-ID similarity. This is a discovery hint, not proof that the entities represent the same device.</p>'+
+     matches.map(match=>'<div class="possible-match-row"><div><code>'+esc(match.entity_id)+'</code><span class="match-score">'+Math.round((match.similarity||0)*100)+'% name similarity</span></div><button class="quiet" type="button" data-select-match="'+esc(match.entity_id)+'">Use possible match</button></div>').join('')
+     :'<p class="recovery-note">'+esc(suggestion.detail||'No sufficiently similar existing entity was found.')+'</p>')+
+   '</div>'+
+   refs.map(ref=>'<div class="reference-location"><b>Used in · '+esc(ref.category)+'</b>'+evidenceHtml(ref)+
+    (ref.category==='Historical'?'':'<div class="repair-controls"><label>Possible match / replacement entity ID</label><input type="text" class="repair-replacement" placeholder="Choose a possible match or enter an ID" autocomplete="off"><button class="quiet" type="button" data-repair-preview="1" data-old-id="'+esc(id)+'" data-file="'+esc(ref.file)+'">Preview reference repair</button><div class="repair-preview"></div></div>')
+   ).join('')+'</details>';
+ }).join('');
 }
 
 function renderReadded(){
@@ -368,7 +395,9 @@ async function runScan(force=false){
    ['Entities actively used',report.entities_with_active_references||0,null,'At least one active reference']
   ].map(([label,value,target,hint],index)=>'<'+(target?'button class="stat stat-primary stat-link" type="button" data-scroll-to="'+target+'"':'div class="stat"')+'><div class="num">'+esc(value)+'</div><div class="label">'+esc(label)+'</div><div class="stat-hint">'+esc(hint)+'</div>'+(target?'</button>':'</div>')).join('');
   const scannedAt=report.last_scanned_at?new Date(report.last_scanned_at).toLocaleString():'Unknown';
-  $('scanMeta').textContent='Last scanned: '+scannedAt+' · '+(report.cache_hit?'Cached result':'Fresh scan')+' · '+Number(report.scan_duration_seconds||0).toFixed(2)+'s';
+  const phaseTimes=report.scan_phase_timings_seconds||{};
+  const phaseSummary=Object.entries(phaseTimes).map(([name,seconds])=>name.replace(/_/g,' ')+': '+seconds+'s').join(' · ');
+  $('scanMeta').textContent='Last scanned: '+scannedAt+' · '+(report.cache_hit?'Cached result':'Fresh scan')+' · '+Number(report.scan_duration_seconds||0).toFixed(2)+'s'+(phaseSummary?' · '+phaseSummary:'');
   $('exportJson').disabled=false;$('exportCsv').disabled=false;
   render();
  }catch(e){$('status').textContent='Scan failed: '+e.message;}
@@ -394,6 +423,7 @@ function clearSession(){
 window.addEventListener('pagehide',clearSession);
 window.addEventListener('pageshow',event=>{if(event.persisted)clearSession();runScan();});
 $('filter').addEventListener('input',render);
+$('repairFilter').addEventListener('input',renderStale);
 $('rescanButton').addEventListener('click',()=>runScan(true));
 function exportData(){
  const active=(report?.results||[]).filter(item=>item.category==='Active configuration'||item.category==='Dashboard');
@@ -548,6 +578,13 @@ async function recoveryRequest(path,data){
  return result;
 }
 document.addEventListener('click',async e=>{
+ const selectMatch=e.target.closest('[data-select-match]');
+ if(selectMatch){
+  const controls=selectMatch.closest('.candidate')?.querySelector('.repair-controls');
+  const input=controls?.querySelector('.repair-replacement');
+  if(input){input.value=selectMatch.getAttribute('data-select-match');input.focus();}
+  return;
+ }
  const repairPreview=e.target.closest('[data-repair-preview]');
  if(repairPreview){
   const controls=repairPreview.closest('.repair-controls');

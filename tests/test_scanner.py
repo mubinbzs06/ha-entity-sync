@@ -112,6 +112,8 @@ class ScannerTests(unittest.TestCase):
         self.assertEqual(suggestion["method"], "deleted_entity_history")
         self.assertIsNone(suggestion["entity_id"])
         self.assertEqual(suggestion["deleted_platform"], "mqtt")
+        self.assertEqual(suggestion["candidates"][0]["entity_id"], "sensor.living_room_temperature")
+        self.assertTrue(suggestion["deleted_history_found"])
 
     def test_conversation_domain_is_ignored_for_stale_candidates(self):
         (self.root / "automations.yaml").write_text(

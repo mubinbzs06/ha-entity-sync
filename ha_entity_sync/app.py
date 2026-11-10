@@ -102,36 +102,46 @@ def load_deleted_entity_history():
 
 
 def suggest_missing_entity_replacement(entity_id, known_entity_ids, deleted_history=None):
-    """Return Spook-style same-domain fuzzy suggestion; never treat it as identity proof."""
+    """Return ranked same-domain possible matches; similarity is discovery, never identity proof."""
     deleted = (deleted_history or {}).get(entity_id)
-    if deleted:
-        return {
-            "entity_id": None,
-            "confidence": "none",
-            "method": "deleted_entity_history",
-            "detail": "The missing ID appears in Home Assistant's deleted-entity history.",
-            "deleted_platform": deleted.get("platform"),
-            "deleted_at": deleted.get("modified_at"),
-        }
     domain = entity_id.split(".", 1)[0]
     candidates = sorted(
         candidate for candidate in known_entity_ids
         if candidate.split(".", 1)[0] == domain and candidate != entity_id
     )
-    # Spook's threshold is 0.8. This is discovery only, not an identity decision.
-    matches = difflib.get_close_matches(entity_id, candidates, n=1, cutoff=0.8)
-    if not matches:
-        return {
-            "entity_id": None, "confidence": "none",
-            "method": "same_domain_fuzzy", "detail": "No sufficiently similar same-domain entity was found."
+    matches = difflib.get_close_matches(entity_id, candidates, n=3, cutoff=0.8)
+    ranked = [
+        {
+            "entity_id": candidate,
+            "similarity": round(difflib.SequenceMatcher(None, entity_id, candidate).ratio(), 4),
+            "confidence": "name_similarity_only",
+            "method": "same_domain_fuzzy",
         }
-    return {
-        "entity_id": matches[0],
-        "confidence": "name_similarity_only",
-        "method": "same_domain_fuzzy",
+        for candidate in matches
+    ]
+    result = {
+        "entity_id": ranked[0]["entity_id"] if ranked and not deleted else None,
+        "candidates": ranked,
+        "confidence": "name_similarity_only" if ranked and not deleted else "none",
+        "method": "deleted_entity_history" if deleted else "same_domain_fuzzy",
         "similarity_cutoff": 0.8,
-        "detail": "Possible replacement based on same-domain entity-ID similarity only; verify identity before repair.",
+        "detail": (
+            "Home Assistant deleted-entity history was found"
+            + (f" for integration {deleted.get('platform')}" if deleted.get("platform") else "")
+            + ". Ranked possible matches below are name-similarity hints only."
+            if deleted else
+            "Possible match based on same-domain entity-ID similarity only. "
+            "This is not identity proof; verify the device and integration before repair."
+            if ranked else "No sufficiently similar same-domain entity was found."
+        ),
+        "deleted_history_found": bool(deleted),
     }
+    if deleted:
+        result.update({
+            "deleted_platform": deleted.get("platform"),
+            "deleted_at": deleted.get("modified_at"),
+        })
+    return result
 
 
 def load_registry():
@@ -437,15 +447,16 @@ def enrich_dashboard_references(references):
     return enriched
 
 
-def find_dashboard_card_context(file_path, entity_id):
-    """Return Lovelace card objects that contain an entity reference, when JSON is parseable."""
-    path = CONFIG / file_path
-    try:
-        if not safe_config_file(path) or not path.is_file() or path.stat().st_size > MAX_FILE_BYTES:
+def find_dashboard_card_context(file_path, entity_id, payload=None):
+    """Return Lovelace card objects containing an entity; accept a parsed payload for reuse."""
+    if payload is None:
+        path = CONFIG / file_path
+        try:
+            if not safe_config_file(path) or not path.is_file() or path.stat().st_size > MAX_FILE_BYTES:
+                return []
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, ValueError, TypeError):
             return []
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, ValueError, TypeError):
-        return []
 
     def contains_entity(value):
         if isinstance(value, str):
@@ -476,6 +487,7 @@ def build_dashboard_health(dashboard_references, registry, live_states):
     registered = {item["entity_id"] for item in registry}
     routes = dashboard_route_index()
     card_context_cache = {}
+    dashboard_payload_cache = {}
     health = []
     for reference in dashboard_references:
         entity_id = reference.get("entity_id")
@@ -506,7 +518,20 @@ def build_dashboard_health(dashboard_references, registry, live_states):
         file_path = reference.get("file", "")
         context_key = (file_path, entity_id)
         if context_key not in card_context_cache:
-            card_context_cache[context_key] = find_dashboard_card_context(file_path, entity_id)
+            if file_path not in dashboard_payload_cache:
+                path = CONFIG / file_path
+                try:
+                    if safe_config_file(path) and path.is_file() and path.stat().st_size <= MAX_FILE_BYTES:
+                        dashboard_payload_cache[file_path] = json.loads(path.read_text(encoding="utf-8"))
+                    else:
+                        dashboard_payload_cache[file_path] = None
+                except (OSError, UnicodeError, ValueError, TypeError):
+                    dashboard_payload_cache[file_path] = None
+            payload = dashboard_payload_cache[file_path]
+            card_context_cache[context_key] = (
+                find_dashboard_card_context(file_path, entity_id, payload)
+                if payload is not None else []
+            )
         item.update({"registry_status": "registered" if is_registered else "not_registered", "live_state": state, "health_status": status, "health_detail": detail, "dashboard_url": routes.get(file_path), "dashboard_preview_available": bool(routes.get(file_path)), "card_context": card_context_cache[context_key]})
         health.append(item)
     health.sort(key=lambda item: ({"missing": 0, "unavailable": 1, "unknown": 2, "no_live_state": 3, "not_checked": 4, "available": 5}.get(item["health_status"], 6), item["entity_id"], item.get("file", "")))
@@ -681,6 +706,8 @@ def build_clean_name_suggestions(registry, references):
     return suggestions
 def scan():
     started = time.monotonic()
+    phase_started = started
+    phase_timings = {}
     if not REGISTRY.exists():
         print("HA Entity Sync: scan failed - entity registry not found", flush=True)
         return {"ok": False, "error": "Entity registry not found at .storage/core.entity_registry"}
@@ -690,6 +717,8 @@ def scan():
         print(f"HA Entity Sync: scan failed - {type(err).__name__}: {err}", flush=True)
         return {"ok": False, "error": f"Could not read entity registry: {type(err).__name__}: {err}"}
 
+    phase_timings["registry_load"] = round(time.monotonic() - phase_started, 4)
+    phase_started = time.monotonic()
     entity_ids = sorted({item["entity_id"] for item in registry})
     known = set(entity_ids)
     known_domains = COMMON_DOMAINS | {entity_id.split(".", 1)[0] for entity_id in known}
@@ -765,6 +794,8 @@ def scan():
                         entry["lines"].append(line_no)
                         entry["matches"].append(evidence)
 
+    phase_timings["configuration_file_scan"] = round(time.monotonic() - phase_started, 4)
+    phase_started = time.monotonic()
     results = sorted(references.values(), key=lambda x: (x["entity_id"], x["file"]))
     results = enrich_dashboard_references(results)
     candidate_categories = {}
@@ -783,6 +814,8 @@ def scan():
         item["priority"] = "Active/dashboard evidence" if rank == 0 else "Needs review evidence" if rank == 1 else "Historical-only evidence"
     live_states = fetch_live_states()
     deleted_history = load_deleted_entity_history()
+    phase_timings["live_states_and_deleted_history"] = round(time.monotonic() - phase_started, 4)
+    phase_started = time.monotonic()
     known_for_suggestions = set(entity_ids)
     if live_states is not None:
         known_for_suggestions.update(live_states.keys())
@@ -803,6 +836,8 @@ def scan():
             )
     dashboard_references = [item for item in results + stale if item.get("category") == "Dashboard"]
     dashboard_health = build_dashboard_health(dashboard_references, registry, live_states)
+    phase_timings["dashboard_health_and_card_context"] = round(time.monotonic() - phase_started, 4)
+    phase_started = time.monotonic()
     dashboard_health_counts = {status: sum(1 for item in dashboard_health if item["health_status"] == status) for status in ("available", "unavailable", "unknown", "missing", "no_live_state", "not_checked")}
     naming_findings = naming_audit(registry)
     usage_by_entity = {}
@@ -812,6 +847,7 @@ def scan():
         finding["usage"] = usage_by_entity.get(finding["entity_id"], [])
     readded_pairs, readded_note = detect_readded_pairs(registry, results, live_states, load_device_names())
     clean_name_suggestions = build_clean_name_suggestions(registry, results)
+    phase_timings["maintenance_analysis"] = round(time.monotonic() - phase_started, 4)
     referenced_entities = {item["entity_id"] for item in results}
     active_entities = {item["entity_id"] for item in results if item["category"] in {"Active configuration", "Dashboard"}}
     review_entities = {item["entity_id"] for item in results if item["category"] == "Needs review"}
@@ -845,6 +881,7 @@ def scan():
         "reference_records": reference_record_count,
         "reference_hits": reference_hit_count,
         "scan_duration_seconds": duration,
+        "scan_phase_timings_seconds": phase_timings,
         "last_scanned_at": scanned_at,
         "category_hits": category_hits,
         "results": results,
