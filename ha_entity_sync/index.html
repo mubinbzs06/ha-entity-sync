@@ -377,8 +377,10 @@ function clearSession(){
  report=null;
  $('status').textContent='Ready. A fresh read-only scan will run when the app opens.';
  $('stats').innerHTML=[
-  ['Registered entities','—'],['Entities with any references','—'],['Entities with active references','—'],['Historical-only entities','—'],['Needs-review-only entities','—'],['Unreferenced entities','—'],['Reference records','—'],['Reference hits','—'],['Files scanned','—']
- ].map(([label,value])=>'<div class="stat"><div class="num">'+value+'</div><div class="label">'+label+'</div></div>').join('');
+  ['Broken references to investigate','—','staleSection','Candidates; verify before repair'],
+  ['Registered entities','—',null,'Current registry total'],
+  ['Entities actively used','—',null,'At least one active reference']
+ ].map(([label,value,target,hint])=>'<'+(target?'button class="stat stat-primary stat-link" type="button" data-scroll-to="'+target+'"':'div class="stat"')+'><div class="num">'+value+'</div><div class="label">'+label+'</div><div class="stat-hint">'+hint+'</div>'+(target?'</button>':'</div>')).join('');
  $('results').innerHTML='<div class="empty">No scan results yet.</div>';
  $('staleResults').innerHTML='<div class="empty">Run a scan to check for candidates.</div>';
  $('namingResults').innerHTML='<div class="empty">Run a scan to check entity names.</div>';
