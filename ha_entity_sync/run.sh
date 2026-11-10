@@ -1,2 +1,3 @@
-#!/usr/bin/with-contenv bashio
-python3 /app/app.py
+#!/bin/sh
+set -eu
+exec python3 /app/app.py
