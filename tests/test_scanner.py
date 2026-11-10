@@ -368,5 +368,15 @@ class ScannerTests(unittest.TestCase):
         self.assertEqual(plan["confidence"], "low")
 
 
+    def test_active_reference_evidence_keeps_every_line_for_repair_plans(self):
+        lines = [f"entity_id: sensor.known # reference {index}" for index in range(45)]
+        (self.root / "automations.yaml").write_text("\n".join(lines), encoding="utf-8")
+        report = app.scan()
+        reference = next(item for item in report["results"] if item["entity_id"] == "sensor.known")
+        self.assertEqual(reference["count"], 45)
+        self.assertEqual(len(reference["matches"]), 45)
+        self.assertEqual(reference["lines"], list(range(1, 46)))
+
+
 if __name__ == "__main__":
     unittest.main()
