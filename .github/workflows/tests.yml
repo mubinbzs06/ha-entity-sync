@@ -20,3 +20,12 @@ jobs:
         run: python -m compileall -q ha_entity_sync tests
       - name: Run scanner tests
         run: python -m unittest discover -s tests -v
+
+  container-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build add-on container
+        run: docker build --build-arg BUILD_FROM=python:3.13-alpine -t ha-entity-sync-smoke ha_entity_sync
+      - name: Verify packaged application and startup script
+        run: docker run --rm --entrypoint sh ha-entity-sync-smoke -c "test -x /app/run.sh && python -m py_compile /app/app.py"
