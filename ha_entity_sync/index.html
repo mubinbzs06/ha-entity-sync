@@ -246,6 +246,7 @@ async function runScan(force=false){
   $('status').textContent='Scan complete. No Home Assistant files were changed. Candidate IDs require review.';
   $('stats').innerHTML=[
    ['Registered entities',report.registered_entities],
+   ['Entities with any references',report.entities_with_any_references],
    ['Entities with active references',report.entities_with_active_references],
    ['Historical-only entities',report.entities_with_historical_only_references],
    ['Needs-review-only entities',report.entities_with_needs_review_only_references],
@@ -266,7 +267,7 @@ function clearSession(){
  report=null;
  $('status').textContent='Ready. A fresh read-only scan will run when the app opens.';
  $('stats').innerHTML=[
-  ['Registered entities','—'],['Entities with active references','—'],['Historical-only entities','—'],['Needs-review-only entities','—'],['Unreferenced entities','—'],['Reference records','—'],['Reference hits','—'],['Files scanned','—']
+  ['Registered entities','—'],['Entities with any references','—'],['Entities with active references','—'],['Historical-only entities','—'],['Needs-review-only entities','—'],['Unreferenced entities','—'],['Reference records','—'],['Reference hits','—'],['Files scanned','—']
  ].map(([label,value])=>'<div class="stat"><div class="num">'+value+'</div><div class="label">'+label+'</div></div>').join('');
  $('results').innerHTML='<div class="empty">No scan results yet.</div>';
  $('staleResults').innerHTML='<div class="empty">Run a scan to check for candidates.</div>';
