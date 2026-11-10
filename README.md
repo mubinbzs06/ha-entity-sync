@@ -2,11 +2,11 @@
 
 A local Home Assistant OS app for **read-only entity reference auditing**.
 
-## Current release
+## Current development build
 
-Version **0.1.3** improves the mobile and desktop interface with a responsive layout, compact scan summary, searchable results, and collapsible reference groups. Expand a category and then an entity to inspect its file locations and line numbers.
+Version **0.2.0** adds source-line evidence, copyable file locations, conservative unregistered-ID candidate detection, and naming review for numeric suffixes and repeated words.
 
-The scanner reads the Home Assistant entity registry and searches selected configuration and storage files for references. It does not rename entities, edit Home Assistant files, or call services.
+The app still does not rename entities, edit Home Assistant files, or call services. Candidate IDs are not declared broken automatically.
 
 ## Install (development)
 
@@ -17,11 +17,20 @@ The scanner reads the Home Assistant entity registry and searches selected confi
 
 The app mounts the Home Assistant configuration at `/homeassistant` **read-only**. It excludes secrets, databases, backups, logs, and Git metadata.
 
-## Current limitations
+## Build 2 features
 
-- Broken-reference detection is not implemented yet. The current scan reports references to registered entities; it does not claim that unregistered IDs are broken.
-- Rename impact previews, the central entity database, backup/rollback, and approved repair workflows are planned milestones, not active features.
-- Reference coverage is limited to eligible files visible to the scanner. Integrations may store dependencies in databases or remote systems.
+- Registered entity references grouped by file role.
+- Exact matching line snippets and copyable `file:line` locations.
+- Conservative candidates for entity-like IDs absent from the current registry.
+- Naming review for numeric suffixes and repeated words.
+- Mobile/desktop responsive interface with collapsible sections.
+
+## Limitations
+
+- An unregistered ID is only a candidate; it is not necessarily broken.
+- Candidate detection uses common Home Assistant domains and explicit reference contexts. Custom domains and unusual syntax may be missed.
+- File scanning cannot see every dependency stored in databases, integrations, or remote systems.
+- Persistent entity database, scan history, confirmed broken-reference validation, impact previews, backup/rollback, and approved repair are future work.
 
 ## Safety
 
@@ -29,11 +38,6 @@ The app mounts the Home Assistant configuration at `/homeassistant` **read-only*
 - No entity rename or repair actions.
 - No configuration writes or service calls.
 - No cloud service or telemetry.
-- Reports are generated on demand.
+- No automatic restart.
 
-## Planned milestones
-
-1. Read-only entity inventory and reference scan with responsive, collapsible UI.
-2. Entity database, scan history, duplicate/name audits, and reliable broken-reference detection.
-3. Rename impact analysis and visual before/broken/repaired previews.
-4. Explicitly approved repairs with verified backups, rollback, validation, and audit history.
+**Golden rule:** no future modification without a verified backup, explicit approval, and a usable rollback path.
