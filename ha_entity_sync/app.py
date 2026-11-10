@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Read-only Home Assistant entity reference auditor."""
 import json
+import difflib
 import os
 import re
 import threading
@@ -21,7 +22,7 @@ REGISTRY = CONFIG / ".storage" / "core.entity_registry"
 MAX_FILE_BYTES = 5 * 1024 * 1024
 MAX_SCAN_FILES = 5000
 MAX_SCAN_BYTES = 100 * 1024 * 1024
-VERSION = "0.2.17"
+VERSION = "0.3.0"
 PORT = 8099
 SCAN_CACHE_SECONDS = 60
 IGNORED_STALE_DOMAINS = {"conversation"}
@@ -72,6 +73,65 @@ lock media_player notify number persistent_notification person remote scene
  script select sensor siren stt sun switch text time todo tts update vacuum
  valve water_heater weather zone
 """.split())
+
+
+def load_deleted_entity_history():
+    """Read Home Assistant's deleted entity registry entries for explanatory context."""
+    try:
+        if not safe_config_file(REGISTRY) or not REGISTRY.is_file():
+            return {}
+        data = json.loads(REGISTRY.read_text(encoding="utf-8"))
+        deleted = data.get("data", {}).get("deleted_entities", [])
+        if isinstance(deleted, dict):
+            deleted = list(deleted.values())
+        if not isinstance(deleted, list):
+            return {}
+        history = {}
+        for item in deleted:
+            if not isinstance(item, dict):
+                continue
+            entity_id = item.get("entity_id")
+            if entity_id:
+                history[entity_id] = {
+                    "platform": item.get("platform"),
+                    "modified_at": item.get("modified_at"),
+                }
+        return history
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def suggest_missing_entity_replacement(entity_id, known_entity_ids, deleted_history=None):
+    """Return Spook-style same-domain fuzzy suggestion; never treat it as identity proof."""
+    deleted = (deleted_history or {}).get(entity_id)
+    if deleted:
+        return {
+            "entity_id": None,
+            "confidence": "none",
+            "method": "deleted_entity_history",
+            "detail": "The missing ID appears in Home Assistant's deleted-entity history.",
+            "deleted_platform": deleted.get("platform"),
+            "deleted_at": deleted.get("modified_at"),
+        }
+    domain = entity_id.split(".", 1)[0]
+    candidates = sorted(
+        candidate for candidate in known_entity_ids
+        if candidate.split(".", 1)[0] == domain and candidate != entity_id
+    )
+    # Spook's threshold is 0.8. This is discovery only, not an identity decision.
+    matches = difflib.get_close_matches(entity_id, candidates, n=1, cutoff=0.8)
+    if not matches:
+        return {
+            "entity_id": None, "confidence": "none",
+            "method": "same_domain_fuzzy", "detail": "No sufficiently similar same-domain entity was found."
+        }
+    return {
+        "entity_id": matches[0],
+        "confidence": "name_similarity_only",
+        "method": "same_domain_fuzzy",
+        "similarity_cutoff": 0.8,
+        "detail": "Possible replacement based on same-domain entity-ID similarity only; verify identity before repair.",
+    }
 
 
 def load_registry():
@@ -718,8 +778,27 @@ def scan():
     for item in stale:
         rank = candidate_priority(item["entity_id"])
         item["priority"] = "Active/dashboard evidence" if rank == 0 else "Needs review evidence" if rank == 1 else "Historical-only evidence"
-    dashboard_references = [item for item in results + stale if item.get("category") == "Dashboard"]
     live_states = fetch_live_states()
+    deleted_history = load_deleted_entity_history()
+    known_for_suggestions = set(entity_ids)
+    if live_states is not None:
+        known_for_suggestions.update(live_states.keys())
+        # State-only entities are valid Home Assistant entities even without registry entries.
+        stale = [item for item in stale if item["entity_id"] not in live_states]
+    stale_by_id = {}
+    for item in stale:
+        stale_by_id.setdefault(item["entity_id"], []).append(item)
+    for missing_id, references_for_id in stale_by_id.items():
+        suggestion = suggest_missing_entity_replacement(
+            missing_id, known_for_suggestions, deleted_history
+        )
+        for item in references_for_id:
+            item["replacement_suggestion"] = suggestion
+            item["broken_status"] = (
+                "confirmed_missing" if live_states is not None
+                else "unverified_live_state_unavailable"
+            )
+    dashboard_references = [item for item in results + stale if item.get("category") == "Dashboard"]
     dashboard_health = build_dashboard_health(dashboard_references, registry, live_states)
     dashboard_health_counts = {status: sum(1 for item in dashboard_health if item["health_status"] == status) for status in ("available", "unavailable", "unknown", "missing", "no_live_state", "not_checked")}
     naming_findings = naming_audit(registry)
