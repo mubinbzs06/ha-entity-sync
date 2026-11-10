@@ -126,24 +126,35 @@ def _rename(old_id, new_id):
     })
 
 
+IDENTITY_FIELDS = ("unique_id", "platform", "config_entry_id", "device_id")
+
+
+def _identity_snapshot(entry):
+    return {field: entry.get(field) for field in IDENTITY_FIELDS} if isinstance(entry, dict) else None
+
+
+def _same_identity_snapshot(entry, snapshot):
+    return (
+        isinstance(entry, dict)
+        and isinstance(snapshot, dict)
+        and all(entry.get(field) == snapshot.get(field) for field in IDENTITY_FIELDS)
+    )
+
+
 def _identity_reason(first, second):
     if not isinstance(first, dict) or not isinstance(second, dict):
         return None
-    if first.get("unique_id") and first.get("unique_id") == second.get("unique_id"):
+    same_platform = bool(first.get("platform")) and first.get("platform") == second.get("platform")
+    if same_platform and first.get("unique_id") and first.get("unique_id") == second.get("unique_id"):
         return "Same integration unique_id"
-    if first.get("device_id") and first.get("device_id") == second.get("device_id"):
-        return "Same registered device ID"
-    if (
-        first.get("config_entry_id")
-        and first.get("config_entry_id") == second.get("config_entry_id")
-        and first.get("platform")
-        and first.get("platform") == second.get("platform")
-    ):
+    if same_platform and first.get("device_id") and first.get("device_id") == second.get("device_id"):
+        return "Same registered device ID and integration"
+    if same_platform and first.get("config_entry_id") and first.get("config_entry_id") == second.get("config_entry_id"):
         return "Same integration and config entry"
     return None
 
 
-def verify_backup_archive(archive_bytes, required_entity_ids):
+def verify_backup_archive(archive_bytes, required_entity_ids, expected_entries=None):
     """Verify a downloaded Supervisor archive contains the HA entity registry."""
     try:
         with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:*") as outer:
@@ -180,6 +191,9 @@ def verify_backup_archive(archive_bytes, required_entity_ids):
         missing = [entity_id for entity_id in required_entity_ids if entity_id not in present]
         if missing:
             raise RecoveryError("Verified backup is missing required registry entries: " + ", ".join(missing))
+        for entity_id, expected in (expected_entries or {}).items():
+            if not _same_identity_snapshot(found[entity_id], _identity_snapshot(expected)):
+                raise RecoveryError(f"Backup registry identity does not match the live entry for {entity_id}.")
         return True
     except RecoveryError:
         raise
@@ -187,7 +201,7 @@ def verify_backup_archive(archive_bytes, required_entity_ids):
         raise RecoveryError(f"Could not verify backup archive: {type(err).__name__}: {err}") from err
 
 
-def create_verified_backup(required_entity_ids, label):
+def create_verified_backup(required_entity_ids, label, expected_entries=None):
     """Create a partial HA backup (excluding the recorder DB) and verify its registry."""
     name = ("HA Entity Sync before " + label)[:120]
     response = _unwrap(_supervisor_request(
@@ -207,7 +221,7 @@ def create_verified_backup(required_entity_ids, label):
     if not isinstance(info, dict) or not info.get("homeassistant"):
         raise RecoveryError(f"Backup {slug} does not confirm Home Assistant is included.")
     archive = _supervisor_request(f"/backups/{slug}/download", binary=True)
-    verify_backup_archive(archive, required_entity_ids)
+    verify_backup_archive(archive, required_entity_ids, expected_entries)
     return {"slug": slug, "name": info.get("name") or name, "date": info.get("date")}
 
 
