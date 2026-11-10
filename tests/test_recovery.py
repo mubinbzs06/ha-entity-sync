@@ -150,6 +150,7 @@ class RecoveryTests(unittest.TestCase):
             patch.object(recovery, "_entries", side_effect=[
                 entries_after_first,
                 entries_after_first,
+                entries_after_first,
                 original_entries,
             ]),
             patch.object(recovery, "_rename", side_effect=[None, recovery.RecoveryError("rename failed"), None, None]) as rename,
