@@ -14,7 +14,7 @@ h1{font-size:25px;margin:0 0 6px}.sub,.muted{color:var(--muted)}button{backgroun
 .num{font-size:27px;font-weight:700}.label{font-size:13px;color:var(--muted)}
 input{width:100%;padding:12px;border:1px solid var(--line);border-radius:9px;background:#0d141a;color:var(--text);margin:8px 0 14px}
 .result{margin:10px 0}.entity{font-weight:700;color:var(--accent);overflow-wrap:anywhere}.path{font-size:13px;color:var(--muted);margin:5px 0}
-.match{font:12px ui-monospace,monospace;background:#101820;padding:8px;border-radius:6px;margin-top:6px;overflow-wrap:anywhere;white-space:pre-wrap}
+.match{font:12px ui-monospace,monospace;background:#101820;padding:8px;border-radius:6px;margin-top:6px}
 #status{color:var(--muted);margin:12px 0}.empty{padding:30px;text-align:center;color:var(--muted)}
 </style></head>
 <body><main>
@@ -33,12 +33,12 @@ function render(){
  if(!report)return;
  const q=$('filter').value.toLowerCase();
  const rows=report.results.filter(x=>(x.entity_id+' '+x.file).toLowerCase().includes(q));
- $('results').innerHTML=rows.length?rows.map(x=>'<article class="result"><div class="entity">'+esc(x.entity_id)+'</div><div class="path">'+esc(x.file)+' · '+x.count+' reference(s)</div>'+x.matches.map(m=>'<div class="match">Line '+m.line+': '+esc(m.preview)+'</div>').join('')+'</article>').join(''):'<div class="empty">No matching references.</div>';
+ $('results').innerHTML=rows.length?rows.map(x=>'<article class="result"><div class="entity">'+esc(x.entity_id)+'</div><div class="path">'+esc(x.file)+' · '+x.count+' reference(s)</div>'+x.lines.map(n=>'<div class="match">Reference at line '+n+'</div>').join('')+'</article>').join(''):'<div class="empty">No matching references.</div>';
 }
 $('scan').onclick=async()=>{
  $('scan').disabled=true;$('status').textContent='Scanning read-only configuration files…';
  try{
-  const r=await fetch('/api/scan');report=await r.json();
+  const r=await fetch('api/scan');report=await r.json();
   if(!report.ok){$('status').textContent=report.error;$('stats').innerHTML='';$('results').innerHTML='';return;}
   $('status').textContent='Scan complete. No files were changed.';
   $('stats').innerHTML=[
