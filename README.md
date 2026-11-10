@@ -4,7 +4,7 @@ A local Home Assistant OS app for **read-only entity reference auditing**.
 
 ## Current build
 
-**Build 2.10 · Version 0.2.11** scans user-maintained Home Assistant configuration, Lovelace dashboards, and a small allowlist of historical storage records.
+**Build 2.11 · Version 0.2.12** scans user-maintained Home Assistant configuration, Lovelace dashboards, and a small allowlist of historical storage records.
 
 It excludes unrelated Home Assistant internals, integration/add-on implementation folders, backups, archives, databases, logs, secrets, and runtime data.
 
@@ -19,7 +19,7 @@ Entities created by integrations are still tracked in the entity registry and ap
 - Potentially stale IDs are review candidates, not confirmed broken references.
 - Active dependencies, historical references, and unclassified references are kept distinct.
 - Historical hits are not counted as active dependencies and do not by themselves justify deleting or renaming an entity.
-- Naming observations are informational only; numeric suffixes and repeated words are not treated as problems or rename recommendations.
+- Naming observations are informational only; numeric suffixes and repeated words are not treated as problems by themselves.
 - Naming findings show the entity source/integration when recorded in the entity registry.
 - Naming observations can include optional, unique, copyable ID suggestions; they never rename entities automatically.
 - Usage evidence is grouped by file, with clickable line numbers, compact previews, expandable full references, and the investigated entity highlighted in both previews and the read-only file viewer.
@@ -67,11 +67,21 @@ The app mounts Home Assistant configuration at `/homeassistant` **read-only**. I
 - Stale candidates with active/dashboard evidence rank above historical-only candidates. The built-in `conversation` domain is excluded from stale-candidate detection to reduce false positives.
 
 
-## Read-only repair planning (0.2.11)
+## Read-only repair planning (0.2.12)
 
-- **Re-add recovery candidates** compare unavailable/orphaned original IDs with live suffixed IDs such as `sensor.foo_2`. A candidate is shown only when live state and device/integration identity evidence agree. High-confidence matches use the same device ID or config entry; matching integration plus device/entity name is medium confidence.
+- **Re-add recovery candidates** compare unavailable/orphaned original IDs with live suffixed IDs such as `sensor.foo_2`. A candidate is shown only when live state and strong registry lineage evidence agree: the same integration `unique_id`, device ID, or config-entry ID plus platform. Names alone are never treated as identity.
 - Each re-add plan lists the original and replacement IDs, their states, identity evidence, and every active dashboard/YAML reference to the original ID. Those existing references are expected to resolve again after a future approved registry repair; historical restore-state and trace records are not included in repair plans.
-- **Clean-name suggestions** collapse an immediately repeated name sequence, propose removing a trailing `_2`/`_3` duplicate suffix, and may remove a leading integration prefix only when registry metadata confirms it. Each proposal shows collision status, confidence, reason, and exact active-reference line previews.
+- **Clean-name suggestions** prioritize collapsing an immediately repeated adjacent name sequence. Trailing `_2`/`_3` removal is a low-confidence advisory only. Integration-prefix removal is disabled to preserve identity. Duplicate targets within a batch and IDs already in the registry are marked as collisions.
 - Collision proposals are blocked from being considered safe. No entity IDs, registry entries, dashboards, YAML files, or packages are changed.
 - The add-on requests Home Assistant API access only to read live entity states. The configuration mount remains read-only; .storage is never edited.
 - Applying a plan, obtaining Supervisor backups, registry updates, Lovelace API updates, YAML writes, and rollback are not implemented in this build. They remain a separate future phase.
+
+
+## Runtime safeguards (0.2.12)
+
+- The scanner and read-only file viewer reject symbolic links and paths resolving outside the Home Assistant configuration mount.
+- A scan is capped at 5,000 files and 100 MB total input, in addition to the 5 MB per-file limit. If a cap is reached, the panel reports that the scan is incomplete; do not treat a limited scan as a complete audit.
+- The add-on starts its HTTP listener before scanning. Scans begin when the panel is opened, avoiding a long scan delaying service startup.
+- `/health` reports whether the entity registry is available. Failed scans return HTTP 503 with a diagnostic response.
+- The web panel is intended to be opened through Home Assistant Ingress, not exposed directly to the LAN or Internet.
+- The application mounts HA configuration read-only and performs only GET requests to the Home Assistant states API. No service calls, entity registry writes, or configuration writes are implemented.
