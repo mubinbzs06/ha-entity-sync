@@ -518,3 +518,48 @@ class ScannerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReplacementIdentityEvidenceTests(unittest.TestCase):
+    def test_evaluator_exposes_strong_match_and_missing_metadata(self):
+        result = app.evaluate_replacement_identity(
+            {"unique_id": "abc", "platform": "mqtt"},
+            {"unique_id": "abc", "platform": "mqtt"},
+        )
+        self.assertTrue(result["eligible"])
+        self.assertEqual(result["confidence"], "high")
+        self.assertTrue(any(item["status"] == "match" and item["strength"] == "strong"
+                            for item in result["identity_evidence"]))
+        self.assertTrue(any(item["status"] == "not_available"
+                            for item in result["identity_evidence"]))
+
+    def test_conflicting_identity_blocks_otherwise_matching_candidate(self):
+        result = app.evaluate_replacement_identity(
+            {"unique_id": "same", "device_id": "device-a", "platform": "mqtt"},
+            {"unique_id": "same", "device_id": "device-b", "platform": "mqtt"},
+        )
+        self.assertFalse(result["eligible"])
+        self.assertEqual(result["confidence"], "none")
+        self.assertTrue(result["identity_conflicts"])
+
+    def test_names_and_matching_platform_alone_are_not_identity(self):
+        result = app.evaluate_replacement_identity(
+            {"platform": "mqtt", "original_name": "Laundry temperature"},
+            {"platform": "mqtt", "original_name": "Laundry temperature"},
+        )
+        self.assertFalse(result["eligible"])
+        self.assertEqual(result["confidence"], "none")
+
+    def test_readded_pair_includes_explainable_identity_evidence(self):
+        registry = [
+            {"entity_id": "sensor.laundry_temperature", "device_id": "device-a", "platform": "mqtt"},
+            {"entity_id": "sensor.laundry_temperature_2", "device_id": "device-a", "platform": "mqtt"},
+        ]
+        live = {
+            "sensor.laundry_temperature": {"state": "unavailable"},
+            "sensor.laundry_temperature_2": {"state": "21.5"},
+        }
+        plans, _ = app.detect_readded_pairs(registry, [], live, {})
+        self.assertEqual(len(plans), 1)
+        self.assertTrue(plans[0]["identity_evidence"])
+        self.assertEqual(plans[0]["identity_conflicts"], [])
