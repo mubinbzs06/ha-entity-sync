@@ -171,36 +171,76 @@ def _identity_reason(first, second):
     return None
 
 
+def _safe_tar_member_name(name):
+    """Normalize a tar member without accepting absolute or traversing paths."""
+    from pathlib import PurePosixPath
+    path = PurePosixPath(name)
+    if path.is_absolute() or ".." in path.parts:
+        return None
+    normalized = str(path)
+    return normalized[2:] if normalized.startswith("./") else normalized
+
+
+def _unique_tar_member(archive, accepted_names, description):
+    """Find exactly one regular tar member with an accepted normalized path."""
+    matches = [
+        item for item in archive.getmembers()
+        if item.isfile() and _safe_tar_member_name(item.name) in accepted_names
+    ]
+    if len(matches) > 1:
+        raise RecoveryError(f"Backup contains multiple possible {description} files; refusing an ambiguous archive.")
+    return matches[0] if matches else None
+
+
 def verify_backup_archive(archive_bytes, required_entity_ids, expected_entries=None):
-    """Verify a downloaded Supervisor archive contains the HA entity registry."""
+    """Verify the Supervisor archive's nested Core data/.storage registry."""
     try:
         with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:*") as outer:
-            members = outer.getmembers()
-            direct = next((
-                item for item in members
-                if item.isfile() and (item.name[2:] if item.name.startswith("./") else item.name) == ".storage/core.entity_registry"
-            ), None)
-            registry_bytes = outer.extractfile(direct).read() if direct else None
-            if registry_bytes is None:
-                nested = next((
-                    item for item in members
-                    if item.isfile() and Path(item.name).name in {
-                        "homeassistant.tar", "homeassistant.tar.gz"
-                    }
-                ), None)
-                if nested is None:
-                    raise RecoveryError("Backup archive has no Home Assistant configuration archive.")
-                nested_bytes = outer.extractfile(nested).read()
-                with tarfile.open(fileobj=io.BytesIO(nested_bytes), mode="r:*") as ha_tar:
-                    registry_member = next((
-                        item for item in ha_tar.getmembers()
-                        if item.isfile() and (item.name[2:] if item.name.startswith("./") else item.name) == ".storage/core.entity_registry"
-                    ), None)
-                    if registry_member is None:
-                        raise RecoveryError("Backup does not contain .storage/core.entity_registry.")
-                    registry_bytes = ha_tar.extractfile(registry_member).read()
+            # Supervisor backups contain one inner archive per component.
+            # The current Core archive stores config files under data/; older
+            # archive layouts placed them at the inner archive root.
+            nested = _unique_tar_member(
+                outer,
+                {"homeassistant.tar", "homeassistant.tar.gz"},
+                "Home Assistant archive",
+            )
+            if nested is None:
+                raise RecoveryError("Backup archive has no Home Assistant configuration archive.")
+            nested_file = outer.extractfile(nested)
+            if nested_file is None:
+                raise RecoveryError("Could not read the Home Assistant configuration archive.")
+            nested_bytes = nested_file.read(MAX_BACKUP_BYTES + 1)
+            if len(nested_bytes) > MAX_BACKUP_BYTES:
+                raise RecoveryError("Home Assistant archive exceeds the verification size limit.")
+            with tarfile.open(fileobj=io.BytesIO(nested_bytes), mode="r:*") as ha_tar:
+                registry_member = _unique_tar_member(
+                    ha_tar,
+                    {
+                        "data/.storage/core.entity_registry",
+                        ".storage/core.entity_registry",
+                    },
+                    "entity registry",
+                )
+                if registry_member is None:
+                    raise RecoveryError(
+                        "Backup does not contain data/.storage/core.entity_registry "
+                        "(or the legacy .storage/core.entity_registry path)."
+                    )
+                if registry_member.size <= 0 or registry_member.size > 32 * 1024 * 1024:
+                    raise RecoveryError("Entity registry in backup has an invalid or excessive size.")
+                registry_file = ha_tar.extractfile(registry_member)
+                if registry_file is None:
+                    raise RecoveryError("Could not read the entity registry from the backup.")
+                registry_bytes = registry_file.read(32 * 1024 * 1024 + 1)
+                if len(registry_bytes) > 32 * 1024 * 1024:
+                    raise RecoveryError("Entity registry in backup exceeds the verification size limit.")
+
         registry = json.loads(registry_bytes.decode("utf-8"))
-        entities = registry.get("data", {}).get("entities", [])
+        if not isinstance(registry, dict) or not isinstance(registry.get("data"), dict):
+            raise RecoveryError("Backup entity registry has an invalid structure.")
+        entities = registry["data"].get("entities")
+        if not isinstance(entities, list):
+            raise RecoveryError("Backup entity registry does not contain an entities list.")
         found = {
             item.get("entity_id"): item
             for item in entities if isinstance(item, dict) and item.get("entity_id")
