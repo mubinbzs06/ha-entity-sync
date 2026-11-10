@@ -84,11 +84,11 @@ main{padding:28px clamp(16px,3vw,42px);min-width:0}.top{display:flex;align-items
     <div class="section-head"><div><h2>Entity references</h2><p>Groups stay folded until you open them. Expand an entity to see its exact file locations.</p></div></div>
     <div class="search-sticky"><input class="search" id="filter" type="search" placeholder="Search entity IDs or file paths…" aria-label="Search entity IDs or file paths"></div>
     <div class="toolbar"><button class="quiet" id="expandAll" type="button">Expand groups</button><button class="quiet" id="collapseAll" type="button">Collapse all</button></div>
-    <section id="results"><div class="empty">No scan results yet.</div></section><details class="audit-section" id="staleSection"><summary class="audit-toggle">Potentially stale references</summary><p class="intro">Entity-like IDs found in reference contexts but absent from the current registry. These need human verification.</p><div id="staleResults"><div class="empty">Run a scan to check for candidates.</div></div></details><details class="audit-section" id="namingSection"><summary class="audit-toggle">Naming review</summary><p class="intro">Numeric suffixes and repeated words are suggestions for review only. No names are changed.</p><div id="namingResults"><div class="empty">Run a scan to check entity names.</div></div></details>
+    <section id="results"><div class="empty">No scan results yet.</div></section><details class="audit-section" id="staleSection"><summary class="audit-toggle">Potentially stale references</summary><p class="intro">Entity-like IDs found in reference contexts but absent from the current registry. These need human verification.</p><div id="staleResults"><div class="empty">Run a scan to check for candidates.</div></div></details><details class="audit-section" id="namingSection"><summary class="audit-toggle">Naming information</summary><p class="intro">Numeric suffixes and repeated words are informational observations. They may be intentional; no rename is recommended or performed.</p><div id="namingResults"><div class="empty">Run a scan to check entity names.</div></div></details>
   </section>
 </main>
 </div>
-<nav id="alphabetRail" class="alphabet-rail" aria-label="Jump to naming review letter"></nav>
+<nav id="alphabetRail" class="alphabet-rail" aria-label="Jump to naming information letter"></nav>
 <button id="backToTop" type="button" aria-label="Back to top">↑ Top</button>
 <section id="fileViewer" aria-label="Read-only file viewer">
   <header class="viewer-toolbar">
@@ -149,7 +149,7 @@ function renderNaming(){
  const letters=[...groups.keys()].sort();
  $('namingResults').innerHTML=letters.map(letter=>
   '<div class="letter-heading" id="naming-letter-'+esc(letter)+'">'+esc(letter)+' <span class="count">('+groups.get(letter).length+')</span></div>'+
-  groups.get(letter).map(x=>'<div class="finding"><div class="finding-head"><span class="finding-title">'+esc(x.entity_id)+'</span><span class="count">'+x.issues.length+' issue(s)</span></div>'+(x.name?'<p>Friendly name: '+esc(x.name)+'</p>':'')+x.issues.map(i=>'<p><b>'+esc(i.type)+':</b> '+esc(i.detail)+(i.matching_base?' Matching base entity: '+esc(i.matching_base):'')+'</p>').join('')+'<div class="suggestion">Possible cleaner ID: '+esc(x.suggested_entity_id)+'</div><p>Suggestion only. Check uniqueness and dependencies before any future rename.</p></div>').join('')
+  groups.get(letter).map(x=>'<div class="finding"><div class="finding-head"><span class="finding-title">'+esc(x.entity_id)+'</span><span class="count">'+x.issues.length+' issue(s)</span></div>'+(x.name?'<p>Friendly name: '+esc(x.name)+'</p>':'')+x.issues.map(i=>'<p><b>'+esc(i.type)+':</b> '+esc(i.detail)+(i.matching_base?' Matching base entity: '+esc(i.matching_base):'')+'</p>').join('')+'</div>').join('')
  ).join('');
  rail.innerHTML=letters.map(letter=>'<button type="button" data-jump-letter="'+esc(letter)+'" aria-label="Jump to '+esc(letter)+'">'+esc(letter)+'</button>').join('');
  rail.classList.toggle('visible',rows.length>=12);
