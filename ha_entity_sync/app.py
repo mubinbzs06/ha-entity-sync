@@ -444,9 +444,10 @@ def build_dashboard_health(dashboard_references, registry, live_states):
             detail = "The dashboard references an ID absent from both the entity registry and live states."
         item = dict(reference)
         file_path = reference.get("file", "")
-        if file_path not in card_context_cache:
-            card_context_cache[file_path] = find_dashboard_card_context(file_path, entity_id)
-        item.update({"registry_status": "registered" if is_registered else "not_registered", "live_state": state, "health_status": status, "health_detail": detail, "dashboard_url": routes.get(file_path), "dashboard_preview_available": bool(routes.get(file_path)), "card_context": card_context_cache[file_path]})
+        context_key = (file_path, entity_id)
+        if context_key not in card_context_cache:
+            card_context_cache[context_key] = find_dashboard_card_context(file_path, entity_id)
+        item.update({"registry_status": "registered" if is_registered else "not_registered", "live_state": state, "health_status": status, "health_detail": detail, "dashboard_url": routes.get(file_path), "dashboard_preview_available": bool(routes.get(file_path)), "card_context": card_context_cache[context_key]})
         health.append(item)
     health.sort(key=lambda item: ({"missing": 0, "unavailable": 1, "unknown": 2, "no_live_state": 3, "not_checked": 4, "available": 5}.get(item["health_status"], 6), item["entity_id"], item.get("file", "")))
     return health
