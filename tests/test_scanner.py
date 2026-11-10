@@ -518,3 +518,111 @@ class ScannerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReplacementIdentityEvidenceTests(unittest.TestCase):
+    def test_evaluator_exposes_strong_match_and_missing_metadata(self):
+        result = app.evaluate_replacement_identity(
+            {"unique_id": "abc", "platform": "mqtt"},
+            {"unique_id": "abc", "platform": "mqtt"},
+        )
+        self.assertTrue(result["eligible"])
+        self.assertEqual(result["confidence"], "high")
+        self.assertTrue(any(item["status"] == "match" and item["strength"] == "strong"
+                            for item in result["identity_evidence"]))
+        self.assertTrue(any(item["status"] == "not_available"
+                            for item in result["identity_evidence"]))
+
+    def test_conflicting_identity_blocks_otherwise_matching_candidate(self):
+        result = app.evaluate_replacement_identity(
+            {"unique_id": "same", "device_id": "device-a", "platform": "mqtt"},
+            {"unique_id": "same", "device_id": "device-b", "platform": "mqtt"},
+        )
+        self.assertFalse(result["eligible"])
+        self.assertEqual(result["confidence"], "none")
+        self.assertTrue(result["identity_conflicts"])
+
+    def test_names_and_matching_platform_alone_are_not_identity(self):
+        result = app.evaluate_replacement_identity(
+            {"platform": "mqtt", "original_name": "Laundry temperature"},
+            {"platform": "mqtt", "original_name": "Laundry temperature"},
+        )
+        self.assertFalse(result["eligible"])
+        self.assertEqual(result["confidence"], "none")
+
+    def test_readded_pair_includes_explainable_identity_evidence(self):
+        registry = [
+            {"entity_id": "sensor.laundry_temperature", "device_id": "device-a", "platform": "mqtt"},
+            {"entity_id": "sensor.laundry_temperature_2", "device_id": "device-a", "platform": "mqtt"},
+        ]
+        live = {
+            "sensor.laundry_temperature": {"state": "unavailable"},
+            "sensor.laundry_temperature_2": {"state": "21.5"},
+        }
+        plans, _ = app.detect_readded_pairs(registry, [], live, {})
+        self.assertEqual(len(plans), 1)
+        self.assertTrue(plans[0]["identity_evidence"])
+        self.assertEqual(plans[0]["identity_conflicts"], [])
+
+
+class DashboardRouteTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        (self.root / ".storage").mkdir()
+        self.config_patch = patch.object(app, "CONFIG", self.root)
+        self.config_patch.start()
+
+    def tearDown(self):
+        self.config_patch.stop()
+        self.temp.cleanup()
+
+    def test_default_dashboard_route_is_available(self):
+        self.assertEqual(app.dashboard_route_index()[".storage/lovelace"], "/lovelace")
+
+    def test_custom_dashboard_route_uses_registered_url_path(self):
+        payload = {"data": {"dashboards": [
+            {"id": "dash-123", "url_path": "energy-overview"},
+            {"id": "dash-456", "url_path": "security"}
+        ]}}
+        (self.root / ".storage" / "lovelace_dashboards").write_text(
+            json.dumps(payload), encoding="utf-8"
+        )
+        routes = app.dashboard_route_index()
+        self.assertEqual(routes[".storage/lovelace.dash-123"], "/energy-overview")
+        self.assertEqual(routes[".storage/lovelace.dash-456"], "/security")
+
+    def test_invalid_dashboard_url_path_is_not_exposed(self):
+        payload = {"data": {"dashboards": [
+            {"id": "unsafe", "url_path": "../config"}
+        ]}}
+        (self.root / ".storage" / "lovelace_dashboards").write_text(
+            json.dumps(payload), encoding="utf-8"
+        )
+        self.assertNotIn(".storage/lovelace.unsafe", app.dashboard_route_index())
+
+    def test_missing_dashboard_registry_keeps_default_route(self):
+        self.assertEqual(app.dashboard_route_index(), {".storage/lovelace": "/lovelace"})
+
+
+    def test_unique_id_without_matching_integration_is_not_sufficient(self):
+        result = app.evaluate_replacement_identity(
+            {"unique_id": "same-id", "platform": "mqtt"},
+            {"unique_id": "same-id", "platform": "zwave"},
+        )
+        self.assertFalse(result["eligible"])
+        self.assertTrue(result["identity_conflicts"])
+
+    def test_scanned_dashboard_references_include_live_preview_route(self):
+        payload = {"data": {"dashboards": [
+            {"id": "dash-123", "url_path": "energy-overview"}
+        ]}}
+        (self.root / ".storage" / "lovelace_dashboards").write_text(
+            json.dumps(payload), encoding="utf-8"
+        )
+        references = app.enrich_dashboard_references([
+            {"entity_id": "sensor.example", "file": ".storage/lovelace.dash-123",
+             "category": "Dashboard", "count": 1}
+        ])
+        self.assertEqual(references[0]["dashboard_url"], "/energy-overview")
+        self.assertTrue(references[0]["dashboard_preview_available"])

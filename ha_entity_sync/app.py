@@ -20,7 +20,7 @@ REGISTRY = CONFIG / ".storage" / "core.entity_registry"
 MAX_FILE_BYTES = 5 * 1024 * 1024
 MAX_SCAN_FILES = 5000
 MAX_SCAN_BYTES = 100 * 1024 * 1024
-VERSION = "0.2.15"
+VERSION = "0.2.16"
 PORT = 8099
 SCAN_CACHE_SECONDS = 60
 IGNORED_STALE_DOMAINS = {"conversation"}
@@ -300,14 +300,116 @@ def line_update_evidence(reference, old_id, new_id):
     return updates
 
 
+def evaluate_replacement_identity(old, replacement):
+    """Return transparent identity evidence; names never establish identity."""
+    evidence = []
+    conflicts = []
+
+    def compare(field, label, strong=False):
+        left, right = old.get(field), replacement.get(field)
+        if left and right and left == right:
+            evidence.append({
+                "type": label,
+                "status": "match",
+                "strength": "strong" if strong else "supporting",
+                "detail": f"Both registry entries have the same {label.lower()}.",
+            })
+            return True
+        if left and right and left != right:
+            conflicts.append({
+                "type": label,
+                "status": "conflict",
+                "strength": "blocking",
+                "detail": f"The {label.lower()} differs between the original and replacement.",
+            })
+        elif not left or not right:
+            evidence.append({
+                "type": label,
+                "status": "not_available",
+                "strength": "unknown",
+                "detail": f"{label} could not be compared because metadata is missing.",
+            })
+        return False
+
+    unique_match = compare("unique_id", "Integration unique ID", True)
+    device_match = compare("device_id", "Home Assistant device ID", True)
+    platform_match = compare("platform", "Integration/platform", True)
+    config_match = compare("config_entry_id", "Config entry ID", True)
+
+    # A config-entry match is strong only when its integration also matches.
+    config_pair_match = config_match and platform_match
+    strong_match = platform_match and (unique_match or device_match or config_pair_match)
+    if old.get("platform") and replacement.get("platform") and old.get("platform") == replacement.get("platform"):
+        evidence.append({
+            "type": "Platform compatibility",
+            "status": "match",
+            "strength": "supporting",
+            "detail": "Both entries belong to the same integration/platform.",
+        })
+
+    confidence = "high" if strong_match and not conflicts else "none"
+    reasons = []
+    if unique_match:
+        reasons.append("Same integration unique_id")
+    if device_match:
+        reasons.append("Same registered device ID")
+    if config_pair_match:
+        reasons.append("Same integration and config entry")
+    return {
+        "confidence": confidence,
+        "identity_reason": "; ".join(reasons) if confidence == "high" else "",
+        "identity_evidence": evidence,
+        "identity_conflicts": conflicts,
+        "eligible": confidence == "high",
+    }
+
+
+def enrich_dashboard_references(references):
+    """Attach safe live-preview routes to scanned dashboard reference groups."""
+    routes = dashboard_route_index()
+    enriched = []
+    for reference in references:
+        item = dict(reference)
+        if item.get("category") == "Dashboard":
+            item["dashboard_url"] = routes.get(item.get("file"))
+            item["dashboard_preview_available"] = bool(item["dashboard_url"])
+        enriched.append(item)
+    return enriched
+
+
+def dashboard_route_index():
+    """Map Lovelace storage files to their Home Assistant dashboard URL paths."""
+    routes = {".storage/lovelace": "/lovelace"}
+    registry_path = CONFIG / ".storage" / "lovelace_dashboards"
+    try:
+        payload = json.loads(registry_path.read_text(encoding="utf-8"))
+        dashboards = payload.get("data", {}).get("dashboards", [])
+        for dashboard in dashboards:
+            if not isinstance(dashboard, dict):
+                continue
+            dashboard_id = dashboard.get("id")
+            url_path = dashboard.get("url_path")
+            if dashboard_id and isinstance(url_path, str) and re.fullmatch(r"[A-Za-z0-9_-]+", url_path):
+                routes[f".storage/lovelace.{dashboard_id}"] = "/" + url_path
+    except (OSError, ValueError, TypeError):
+        # Missing dashboard metadata is normal on older/default-only installations.
+        pass
+    return routes
+
+
 def detect_readded_pairs(registry, references, live_states, device_names):
     """Find suffix replacement pairs only when HA state and identity evidence agree."""
     if live_states is None:
         return [], "Live Home Assistant state access is unavailable; re-add detection is not confirmed."
     by_id = {item["entity_id"]: item for item in registry}
     refs_by_id = {}
+    routes = dashboard_route_index()
     for reference in references:
-        refs_by_id.setdefault(reference["entity_id"], []).append(reference)
+        enriched = dict(reference)
+        if reference.get("category") == "Dashboard":
+            enriched["dashboard_url"] = routes.get(reference.get("file"))
+            enriched["dashboard_preview_available"] = bool(enriched["dashboard_url"])
+        refs_by_id.setdefault(reference["entity_id"], []).append(enriched)
     plans = []
     for replacement_id, replacement in by_id.items():
         match = NUMERIC_SUFFIX_RE.search(replacement_id.split(".", 1)[1])
@@ -336,16 +438,13 @@ def detect_readded_pairs(registry, references, live_states, device_names):
         old_unique = old.get("unique_id")
         new_unique = replacement.get("unique_id")
 
-        # Names alone are not identity. Require a shared unique ID, registered
-        # device lineage, or the same integration config entry.
-        if old_unique and old_unique == new_unique:
-            confidence, identity_reason = "high", "Same integration unique_id"
-        elif old_device and old_device == new_device:
-            confidence, identity_reason = "high", "Same registered device ID"
-        elif old_config and old_config == new_config and old_platform and old_platform == new_platform:
-            confidence, identity_reason = "high", "Same integration and config entry"
-        else:
+        # Names and suffix similarity are never identity proof. Require a
+        # strong identity match and suppress candidates when registry metadata conflicts.
+        identity = evaluate_replacement_identity(old, replacement)
+        if not identity["eligible"]:
             continue
+        confidence = identity["confidence"]
+        identity_reason = identity["identity_reason"]
 
         active_refs = [
             ref for ref in refs_by_id.get(old_id, [])
@@ -363,6 +462,8 @@ def detect_readded_pairs(registry, references, live_states, device_names):
             "device_name": device_names.get(old_device) or device_names.get(new_device) or "",
             "confidence": confidence,
             "identity_reason": identity_reason,
+            "identity_evidence": identity["identity_evidence"],
+            "identity_conflicts": identity["identity_conflicts"],
             "active_references": active_refs,
             "reference_count": sum(ref.get("count", 0) for ref in active_refs),
             "affected_lines": updates,
@@ -529,6 +630,7 @@ def scan():
                         entry["matches"].append(evidence)
 
     results = sorted(references.values(), key=lambda x: (x["entity_id"], x["file"]))
+    results = enrich_dashboard_references(results)
     candidate_categories = {}
     for item in candidates.values():
         candidate_categories.setdefault(item["entity_id"], set()).add(item["category"])

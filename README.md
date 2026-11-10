@@ -4,7 +4,7 @@ A local Home Assistant OS app for entity reference auditing and explicitly appro
 
 ## Current build
 
-**Build 2.13 · Version 0.2.14** scans user-maintained Home Assistant configuration, Lovelace dashboards, and a small allowlist of historical storage records.
+**Version 0.2.16** scans user-maintained Home Assistant configuration, Lovelace dashboards, and a small allowlist of historical storage records.
 
 It excludes unrelated Home Assistant internals, integration/add-on implementation folders, backups, archives, databases, logs, secrets, and runtime data.
 
@@ -53,7 +53,7 @@ The app mounts Home Assistant configuration at `/homeassistant` **read-only**. S
 - Custom domains and unusual reference syntax may be missed.
 - Dependencies held only in integrations, databases, or remote systems are outside this file scan.
 - The viewer only serves files approved by the scanner's safe file scope.
-- Entity history and recovery audit records are stored in the app's private data mount. Registry recovery is limited to the re-add scenario; general entity renaming and dashboard/YAML repair remain future work.
+- Entity history and recovery audit records are stored in the app's private data mount. Registry recovery is limited to the re-add scenario; general entity renaming remains out of scope. Re-add recovery restores the original registry ID so existing dashboard references can resolve again.
 
 **Golden rule:** no change without a specific user-approved plan, a verified Supervisor backup, recoverable per-file backups, pre-apply validation, post-apply verification, and a usable rollback path.
 
@@ -89,3 +89,11 @@ The app mounts Home Assistant configuration at `/homeassistant` **read-only**. S
 - `/health` reports whether the entity registry is available. Failed scans return HTTP 503 with a diagnostic response.
 - The web panel is intended to be opened through Home Assistant Ingress, not exposed directly to the LAN or Internet.
 - The application mounts HA configuration read-only. Scans use GET requests; approved recovery and rollback use only the entity-registry WebSocket commands. No direct .storage writes, dashboard/YAML edits, service calls, or automatic restarts are implemented.
+
+
+## Identity and dashboard verification (0.2.16)
+
+- Re-add candidates expose structured identity evidence and conflicts. A strong match requires the same integration/platform plus a matching unique ID, device ID, or config-entry ID. Platform mismatches block recovery even if another identifier matches.
+- Recovery review groups affected dashboard references and can open the real Home Assistant dashboard in an embedded preview.
+- After recovery, the app reports the live registry result, rescans dashboard references, and offers the live dashboard preview in the same screen.
+- Rendered-card verification is a user visual check. The app does not claim to automatically inspect card rendering inside Home Assistant's frontend.
