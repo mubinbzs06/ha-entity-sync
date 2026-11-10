@@ -391,27 +391,38 @@ def build_clean_name_suggestions(registry, references):
         words = object_id.split("_")
         candidate_words = words[:]
         reasons = []
+        repeated_rule = False
+        suffix_rule = False
+
         # Primary rule: collapse one immediately repeated adjacent word sequence.
         for width in range(len(candidate_words) // 2, 0, -1):
             if candidate_words[:width] == candidate_words[width:2 * width]:
                 candidate_words = candidate_words[:width] + candidate_words[2 * width:]
                 reasons.append("Collapsed an immediately repeated name sequence")
+                repeated_rule = True
                 break
-        # Prefix removal is intentionally disabled: integration names can be
-        # essential to identifying an entity (for example sun.next_dawn).
-        # Numeric suffixes remain advisory only and are never assumed to be duplicates.
+
+        # A trailing _2/_3 may be an HA re-add suffix, but may also identify a
+        # real numbered device. Keep this as a low-confidence advisory only.
+        if candidate_words and candidate_words[-1] in {"2", "3"}:
+            removed_suffix = candidate_words.pop()
+            reasons.append(f"Possible duplicate suffix _{removed_suffix}; verify this is not an intentional numbered device")
+            suffix_rule = True
+
+        # Integration-prefix removal is disabled: it can erase useful identity
+        # (for example sun_next_dawn or wiz_rgbw_tunable).
         if candidate_words == words:
             continue
         proposed = domain + "." + "_".join(candidate_words)
         if proposed == domain + ".":
             continue
+
         registered_collision = proposed in occupied and proposed != entity_id
         batch_collision = proposed in suggested_targets
         collision = registered_collision or batch_collision
         if batch_collision:
             reasons.append("Another entity in this scan already suggests the same target ID")
-        repeated_only = bool(reasons) and not collision
-        confidence = "low" if collision else "high" if repeated_only else "low"
+        confidence = "low" if collision or suffix_rule else "high" if repeated_rule else "low"
         refs = [ref for ref in refs_by_id.get(entity_id, []) if ref.get("category") in {"Dashboard", "Active configuration"}]
         updates = []
         for reference in refs:
@@ -433,7 +444,6 @@ def build_clean_name_suggestions(registry, references):
         })
         suggested_targets.add(proposed)
     return suggestions
-
 def scan():
     started = time.monotonic()
     if not REGISTRY.exists():
