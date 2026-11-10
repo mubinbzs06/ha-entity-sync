@@ -339,20 +339,17 @@ def recover_entity_pair(old_id, replacement_id, fetch_live_states):
         if entries.get(old_id) is not None or not _same_identity_snapshot(entries.get(temp_id), _identity_snapshot(old_entry)):
             raise RecoveryError("Original registry entry did not move safely to its rollback ID.")
 
-        # Abort if the old entity is still present/live after its registry entry was moved.
-        deadline = time.monotonic() + 5
-        while time.monotonic() < deadline:
-            states = fetch_live_states()
-            if states is None:
-                raise RecoveryError("Live states became unavailable during recovery.")
-            quarantined = states.get(temp_id)
-            if quarantined and quarantined.get("state") not in {"unavailable", "unknown"}:
-                raise RecoveryError("Original entity became live under the temporary ID; recovery was stopped.")
-            if old_id not in states:
-                break
-            time.sleep(0.25)
-        else:
-            raise RecoveryError("Original state did not leave the original ID after quarantine.")
+        # An unavailable restored state may remain briefly under the old ID.
+        # Abort only if the original entry has become live under either ID.
+        states = fetch_live_states()
+        if states is None:
+            raise RecoveryError("Live states became unavailable during recovery.")
+        old_after = states.get(old_id)
+        quarantined = states.get(temp_id)
+        if old_after and old_after.get("state") not in {"unavailable", "unknown"}:
+            raise RecoveryError("Original entity became live under its original ID; recovery was stopped.")
+        if quarantined and quarantined.get("state") not in {"unavailable", "unknown"}:
+            raise RecoveryError("Original entity became live under the temporary ID; recovery was stopped.")
 
         _update_audit(record_id, {"status": "moving_live_replacement_to_original_id"})
         _rename(replacement_id, old_id)
