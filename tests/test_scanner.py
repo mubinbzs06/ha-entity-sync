@@ -152,26 +152,28 @@ class ScannerTests(unittest.TestCase):
         self.assertFalse(evidence["full_text_truncated"])
         self.assertLessEqual(len(evidence["text"]), 500)
 
-    def test_naming_suggestions_are_unique_advisory_and_keep_domain(self):
-        occupied = {
-            "sensor.bathroom_temperature_2",
-            "sensor.bathroom_temperature",
-        }
+    def test_naming_suggestions_do_not_strip_numeric_suffixes(self):
         suggestions = app.suggest_entity_names(
-            "sensor.bathroom_temperature_sensor_2", occupied
+            "light.bathroom_2", {"light.bathroom_2"}
         )
-        self.assertTrue(suggestions)
-        self.assertTrue(all(item.startswith("sensor.") for item in suggestions))
-        self.assertEqual(len(suggestions), len(set(suggestions)))
-        self.assertNotIn("sensor.bathroom_temperature", suggestions)
-        self.assertNotIn("sensor.bathroom_temperature_sensor_2", suggestions)
+        self.assertEqual(suggestions, [])
 
-    def test_naming_suggestions_collapse_repeated_words(self):
+    def test_naming_suggestions_collapse_only_adjacent_repeated_words(self):
         suggestions = app.suggest_entity_names(
             "light.kitchen_kitchen_ceiling_2",
             {"light.kitchen_kitchen_ceiling_2"},
         )
-        self.assertIn("light.kitchen_ceiling", suggestions)
+        self.assertEqual(suggestions, ["light.kitchen_ceiling_2"])
+        non_adjacent = app.suggest_entity_names(
+            "sensor.bathroom_temperature_bathroom",
+            {"sensor.bathroom_temperature_bathroom"},
+        )
+        self.assertEqual(non_adjacent, [])
+        collision = app.suggest_entity_names(
+            "sensor.mommy_mommy_heater_heating",
+            {"sensor.mommy_mommy_heater_heating", "sensor.mommy_heater_heating"},
+        )
+        self.assertEqual(collision, [])
 
     def test_naming_finding_exposes_entity_source_from_registry(self):
         registry = {
