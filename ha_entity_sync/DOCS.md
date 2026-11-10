@@ -83,6 +83,6 @@ A recovery action handles one pair at a time. It will not run if the original is
 
 The old entry is quarantined under a generated temporary entity ID rather than immediately deleted. This preserves an API-level rollback path. Use **Undo recovery** in Recovery history to reverse the rename. Do not manually rename either entry while a recovery is in progress.
 
-The backup excludes the recorder database but must contain the entity registry. If automatic compensation fails, the audit record shows the verified backup slug; use Home Assistant's Supervisor backup manager to restore the backup. A backup restore may restart Home Assistant and may revert other configuration changes made after that backup.
+The backup excludes the recorder database but must contain the entity registry. If Supervisor reports the backup as encrypted and the archive cannot be inspected, recovery stops without changing registry entries. If automatic compensation fails, the audit record shows the verified backup slug; use Home Assistant's Supervisor backup manager to restore the backup. A backup restore may restart Home Assistant and may revert other configuration changes made after that backup.
 
 The recovery operation is intentionally limited to entity IDs. It does not change dashboard/YAML references because the original IDs are restored.
