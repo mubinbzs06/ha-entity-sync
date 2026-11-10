@@ -200,6 +200,14 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(rename.call_args_list[1].args, (temp_id, self.old))
         update_audit.assert_called_once()
 
+    def test_recovery_operations_are_serialized(self):
+        recovery._RECOVERY_LOCK.acquire()
+        try:
+            with self.assertRaisesRegex(recovery.RecoveryError, "already running"):
+                recovery.recover_entity_pair(self.old, self.new, lambda: {})
+        finally:
+            recovery._RECOVERY_LOCK.release()
+
     def test_failed_second_rename_attempts_compensating_rollback(self):
         temp_id = "sensor.pi_cpu_hes_old_deadbeef"
         preflight = (self.old_entry, self.new_entry, "Same registered device ID")
