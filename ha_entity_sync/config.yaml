@@ -1,5 +1,5 @@
 name: HA Entity Sync
-version: "0.3.0"
+version: "0.3.1"
 slug: ha_entity_sync
 description: Broken entity reference detection and explicitly approved, backed-up repair
 url: https://github.com/mubinbzs06/ha-entity-sync
