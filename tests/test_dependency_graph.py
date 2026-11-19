@@ -75,7 +75,8 @@ class DependencyGraphTests(unittest.TestCase):
         ], [])
         roles = {edge["usage_role"] for edge in graph["edges"]}
         self.assertEqual(roles, {"dashboard_card", "historical_record"})
-        self.assertEqual(graph["nodes"][0]["historical_reference_count"], 1)
+        historical_node = next(node for node in graph["nodes"] if node["entity_id"] == "sensor.old")
+        self.assertEqual(historical_node["historical_reference_count"], 1)
 
 
 if __name__ == "__main__":
