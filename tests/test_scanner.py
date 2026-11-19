@@ -55,6 +55,24 @@ class ScannerTests(unittest.TestCase):
         self.registry_patch.stop()
         self.temp.cleanup()
 
+    def test_version_and_device_registry_diagnostics(self):
+        self.assertEqual(app.VERSION, "0.3.2")
+        devices = {
+            "data": {
+                "devices": [
+                    {"id": "device-1", "name": "Room Sensor"},
+                    {"id": "device-2", "name_by_user": "Living Room"},
+                ]
+            }
+        }
+        (self.root / ".storage" / "core.device_registry").write_text(
+            json.dumps(devices), encoding="utf-8"
+        )
+        self.assertEqual(
+            app.load_device_names(),
+            {"device-1": "Room Sensor", "device-2": "Living Room"},
+        )
+
     def test_registered_reference_contains_line_evidence(self):
         report = app.scan()
         self.assertTrue(report["ok"])
