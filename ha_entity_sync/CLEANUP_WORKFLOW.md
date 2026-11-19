@@ -36,3 +36,11 @@ A missing entity ID is a reconciliation finding, not a deletion decision. Entity
 - Block candidates when comparable identity fields conflict.
 - Keep same-domain fuzzy matches clearly labelled as name-similarity-only.
 - In Repair Center, show affected dashboard card context and a live dashboard preview route when available.
+
+## 0.3.5 — People and device tracker review
+
+The scanner reads Home Assistant's Person integration storage file at .storage/person in read-only mode. It recognizes the current collection format (data.items) and the legacy data.persons shape; unknown schemas are reported as unavailable rather than guessed. It lists stored Person-to-device_tracker assignments and independently checks each tracker against the entity registry and live state API.
+
+Statuses are distinct: available, unavailable, unknown, registered with no live state, missing from both registry and live states, and not checked when live-state access fails. Only confirmed missing trackers receive replacement candidates, using deleted entity-registry identity evidence first and name similarity as discovery-only. Findings are review-only; this release does not remove, rewrite, or ignore assignments.
+
+YAML-defined Person entries remain visible through the existing configuration-file scanner, but this phase does not yet group YAML-defined tracker references under a Person record. That requires a separate parser/merge step and must preserve YAML source locations. No .storage files are edited.
