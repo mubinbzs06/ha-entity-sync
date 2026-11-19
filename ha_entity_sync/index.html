@@ -126,6 +126,7 @@ main{padding:28px clamp(16px,3vw,42px);min-width:0}.top{display:flex;align-items
     <details class="audit-section" id="staleSection" open><summary class="audit-toggle">Broken references to investigate</summary><p class="intro">Find references missing from the current registry and live state. Reconcile each one against deleted-entity history and current identity metadata before deciding whether it was renamed, recreated, moved, or genuinely removed. Missing does not mean disposable.</p><div id="staleResults"><div class="empty">Run a scan to check for candidates.</div></div></details>
     <details class="audit-section" id="dashboardHealthSection"><summary class="audit-toggle">Dashboard health and live preview</summary><p class="intro">Check dashboard references against registry and live states, then inspect the affected dashboard in the same workflow.</p><div id="dashboardHealthResults"><div class="empty">Run a scan to check dashboard references.</div></div></details>
     <details class="audit-section" id="readdedSection"><summary class="audit-toggle">Re-added device recovery</summary><p class="intro">Strong identity evidence is required. Each approved action creates and verifies a Home Assistant backup, quarantines the old entry, verifies the replacement, and retains an undo path.</p><div id="readdedResults"><div class="empty">Run a scan to check for re-added devices.</div></div></details>
+    <details class="audit-section" id="personTrackerSection"><summary class="audit-toggle">People & device tracker reconciliation</summary><p class="intro">Inspect stored Person assignments and compare trackers with registry, live state, and deleted-entity identity history. Missing, unavailable, and unknown trackers are separate findings. This phase is read-only: no assignment is removed or changed.</p><div id="personTrackerResults"><div class="empty">Run a scan to inspect Person assignments.</div></div></details>
   </section>
   <section id="entityDirectory" class="workspace">
     <div class="workspace-head"><div><div class="eyebrow">02 · Find and understand</div><h2>Entity Directory</h2><p>Search registered entities and jump directly to exact configuration references and file lines.</p></div><div class="export-toolbar"><button class="quiet" id="exportJson" type="button" disabled>Export JSON</button><button class="quiet" id="exportCsv" type="button" disabled>Export CSV</button></div></div>
@@ -275,6 +276,40 @@ function renderReadded(){
   return '<div class="finding"><div class="finding-head"><span class="finding-title">'+esc(x.old_entity_id)+' ← '+esc(x.replacement_entity_id)+'</span><span class="count">'+esc(x.confidence)+' confidence</span></div><p>Old state: '+esc(x.old_state)+' · Replacement state: '+esc(x.replacement_state)+'</p><p>Integration: '+esc(x.integration)+' · Device: '+esc(x.device_name||'Not recorded')+'</p><p>'+esc(x.identity_reason)+'</p><div class="evidence"><b>Why this replacement was selected</b><ul>'+identity+'</ul>'+(conflicts?'<b>Conflicting evidence</b><ul>'+conflicts+'</ul>':'')+'</div><p><b>Recovery preview — no changes made yet</b></p><ol>'+x.proposed_steps.map(step=>'<li>'+esc(step)+'</li>').join('')+'</ol><p>Active references that will resolve to the restored original ID: '+x.reference_count+' hit(s) across '+x.active_references.length+' file(s)</p>'+configPreview+x.active_references.filter(ref=>ref.category!=='Dashboard').map(ref=>usageEvidenceHtml(ref,x.old_entity_id)).join('')+'<button class="primary recover-action" type="button" data-recover-old="'+esc(x.old_entity_id)+'" data-recover-new="'+esc(x.replacement_entity_id)+'">Recover this pair</button><p class="recovery-note">A verified backup is required. The old registry entry is retained under a temporary ID for rollback.</p></div>';
  }).join('');
 }
+
+function renderPersonTrackers(){
+ const target=$('personTrackerResults');
+ if(!target)return;
+ if(!report?.person_assignments_checked){
+  target.innerHTML='<div class="empty">'+esc(report?.person_storage_warning||'Person assignment storage was not available or did not match a supported schema. No conclusions were drawn.')+'</div>';
+  return;
+ }
+ const rows=report.person_tracker_findings||[];
+ if(!rows.length){
+  target.innerHTML='<div class="empty">No stored device-tracker assignments were found in the Person storage collection.</div>';
+  return;
+ }
+ const labels={missing:'Missing · reconciliation needed',unavailable:'Unavailable · assignment retained',unknown:'Unknown state · assignment retained',registered_no_live_state:'Registered · no live state',not_checked:'Not checked · live API unavailable',available:'Available'};
+ const colors={missing:'var(--red)',unavailable:'var(--amber)',unknown:'var(--amber)',registered_no_live_state:'var(--muted)',not_checked:'var(--muted)',available:'var(--green)'};
+ target.innerHTML=rows.map(x=>{
+  const suggestion=x.replacement_suggestion||{};
+  const candidates=suggestion.candidates||[];
+  const matches=candidates.map(candidate=>{
+   const strong=candidate.confidence==='high';
+   const evidence=(candidate.identity_evidence||[]).filter(item=>item.status==='match').map(item=>'<li>'+esc(item.type)+' · '+esc(item.strength)+'</li>').join('');
+   return '<div class="possible-match-row"><div><code>'+esc(candidate.entity_id)+'</code><span class="match-score">'+(strong?'Strong identity evidence':'Name similarity only · '+Math.round((candidate.similarity||0)*100)+'%')+'</span>'+(strong?'<small class="recovery-note">'+esc(candidate.identity_reason||'Identity metadata matches')+(evidence?'<ul>'+evidence+'</ul>':'')+'</small>':'<small class="recovery-note">Discovery hint only; verify the phone/device and integration.</small>')+'</div></div>';
+  }).join('');
+  return '<div class="finding"><div class="finding-head"><span class="finding-title">'+esc(x.person_name)+'</span><span class="count" style="color:'+(colors[x.status]||'var(--muted)')+'">'+esc(labels[x.status]||x.status)+'</span></div>'+
+   (x.person_entity_id?'<p>Person entity: <code>'+esc(x.person_entity_id)+'</code></p>':'<p class="recovery-note">Person entity ID was not resolved from the current registry.</p>')+
+   '<p>Assigned tracker: <code>'+esc(x.tracker_entity_id)+'</code></p><p>'+esc(x.detail)+'</p>'+
+   (x.status==='missing'?'<div class="possible-match-panel"><b>Possible renamed/recreated tracker</b><p class="recovery-note">'+esc(suggestion.detail||'No successor established. This does not mean the tracker should be removed.')+'</p>'+(matches||'<p class="recovery-note">No identity-backed candidate was found. Keep the assignment under review.</p>')+'</div>':'')+
+   '<p class="recovery-note">Review only · No removal or assignment change is available in this release.</p></div>';
+ }).join('');
+ if(report.person_storage_warning){
+  target.insertAdjacentHTML('afterbegin','<div class="notice secondary">'+esc(report.person_storage_warning)+'</div>');
+ }
+}
+
 function showPostRecoveryVerification(result){
  const target=$('readdedResults');
  if(!target||!report)return;
@@ -385,7 +420,7 @@ function render(){
  if(!report)return;
  const html=groupedResults();
  $('results').innerHTML=html||'<div class="empty">No matching registered references.</div>';
- renderDashboardHealth();renderStale();renderReadded();renderRecoveryHistory();renderCleanNames();renderNaming();
+ renderDashboardHealth();renderStale();renderReadded();renderPersonTrackers();renderRecoveryHistory();renderCleanNames();renderNaming();
 }
 async function runScan(force=false){
  report=null;
@@ -425,7 +460,7 @@ function clearSession(){
  $('results').innerHTML='<div class="empty">No scan results yet.</div>';
  $('staleResults').innerHTML='<div class="empty">Run a scan to check for candidates.</div>';
  $('namingResults').innerHTML='<div class="empty">Run a scan to check entity names.</div>';
- $('readdedResults').innerHTML='<div class="empty">Run a scan to check for re-added devices.</div>';$('recoveryHistoryResults').innerHTML='<div class="empty">Run a scan to load recovery history.</div>';
+ $('readdedResults').innerHTML='<div class="empty">Run a scan to check for re-added devices.</div>';$('personTrackerResults').innerHTML='<div class="empty">Run a scan to inspect Person assignments.</div>';$('recoveryHistoryResults').innerHTML='<div class="empty">Run a scan to load recovery history.</div>';
  $('cleanNamesResults').innerHTML='<div class="empty">Run a scan to review naming suggestions.</div>';
  $('alphabetRail').innerHTML='';$('alphabetRail').classList.remove('visible');
  $('filter').value='';
