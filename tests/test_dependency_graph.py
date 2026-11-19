@@ -30,7 +30,7 @@ class DependencyGraphTests(unittest.TestCase):
         ]
         stale = [{
             "entity_id": "sensor.old_tracker", "file": "packages/people.yaml",
-            "category": "Active configuration", "matches": [
+            "category": "Active configuration", "replacement_suggestion": {"confidence": "high", "candidates": [{"entity_id": "sensor.new_tracker"}]}, "matches": [
                 {"line": 12, "full_text": "device_tracker: sensor.old_tracker"}
             ]
         }]
@@ -62,6 +62,8 @@ class DependencyGraphTests(unittest.TestCase):
         self.assertEqual(dashboard["health_status"], "available")
         self.assertEqual(dashboard["card_context"][0]["card_title"], "Room")
         self.assertTrue(next(e for e in room_edges if e["historical"])["historical"])
+        stale_edge = next(e for e in graph["edges"] if e["entity_id"] == "sensor.old_tracker")
+        self.assertEqual(stale_edge["replacement_suggestion"]["candidates"][0]["entity_id"], "sensor.new_tracker")
         person = next(e for e in graph["edges"] if e["source_type"] == "person_assignment")
         self.assertEqual(person["parent_object"]["value"], "Alice")
         self.assertEqual(person["replacement_suggestion"]["confidence"], "ambiguous")
