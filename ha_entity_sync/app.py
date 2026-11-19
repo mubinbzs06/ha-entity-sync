@@ -22,7 +22,7 @@ REGISTRY = CONFIG / ".storage" / "core.entity_registry"
 MAX_FILE_BYTES = 5 * 1024 * 1024
 MAX_SCAN_FILES = 5000
 MAX_SCAN_BYTES = 100 * 1024 * 1024
-VERSION = "0.3.0"
+VERSION = "0.3.2"
 PORT = 8099
 SCAN_CACHE_SECONDS = 60
 IGNORED_STALE_DOMAINS = {"conversation"}
@@ -845,7 +845,8 @@ def scan():
         usage_by_entity.setdefault(reference["entity_id"], []).append(reference)
     for finding in naming_findings:
         finding["usage"] = usage_by_entity.get(finding["entity_id"], [])
-    readded_pairs, readded_note = detect_readded_pairs(registry, results, live_states, load_device_names())
+    device_names = load_device_names()
+    readded_pairs, readded_note = detect_readded_pairs(registry, results, live_states, device_names)
     clean_name_suggestions = build_clean_name_suggestions(registry, results)
     phase_timings["maintenance_analysis"] = round(time.monotonic() - phase_started, 4)
     referenced_entities = {item["entity_id"] for item in results}
@@ -866,7 +867,10 @@ def scan():
     }
     report = {
         "ok": True,
+        "version": VERSION,
         "read_only": True,
+        "registered_devices": len(device_names),
+        "device_registry_available": bool(device_names),
         "entities_found": len(entity_ids),
         "registered_entities": len(entity_ids),
         "files_scanned": scanned,
