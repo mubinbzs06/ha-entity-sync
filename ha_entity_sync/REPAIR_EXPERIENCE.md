@@ -81,3 +81,12 @@ Report each check separately as passed, failed, or not verifiable. If Home Assis
 - No generic text replacement across YAML, dashboards, or .storage.
 - No changes to backup, approval, recovery, verification, or rollback semantics.
 - No broad UI redesign.
+
+
+## Deleted-entity reconciliation and cleanup direction
+
+A missing entity ID must not be treated as a dead entity or removal instruction. When deleted entity-registry metadata is available, compare the old integration/platform, unique ID, device ID, and config-entry ID with every current registry entity. A unique strong match is a successor candidate even if the entity ID changed completely. Conflicts block the strong match. Multiple strong matches remain ambiguous and no candidate is selected automatically. Fuzzy entity-ID similarity remains a discovery hint only.
+
+The Repair Center must group the impact across all active configuration references. For dashboards, show the exact dashboard, view/card context, current stored configuration, and a real dashboard preview when available. Treat dashboard rework as part of the same reconciliation plan as automations, scripts, helpers, groups, scenes, and People/device-tracker assignments. Do not make isolated patches that lose the dashboard's purpose or behavior.
+
+The cleanup lifecycle is discover → classify availability → reconcile identity → inspect all dependencies → design the dashboard/configuration result → preview exact changes → verified backup → explicit approval → apply → independently verify registry/configuration/rendered behavior → retain rollback. Missing, unreferenced, or fuzzy-matched entities are never automatically removed.
