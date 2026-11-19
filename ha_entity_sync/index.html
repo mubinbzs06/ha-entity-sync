@@ -123,7 +123,7 @@ main{padding:28px clamp(16px,3vw,42px);min-width:0}.top{display:flex;align-items
   <section id="repairCenter" class="workspace">
     <div class="workspace-head"><div><div class="eyebrow">01 · Investigate and fix</div><h2>Repair Center</h2><p>Broken references, affected locations, replacement evidence, and the repair-and-verify workflow.</p></div></div>
     <div class="search-sticky repair-search"><input class="search" id="repairFilter" type="search" placeholder="Search broken entity IDs, possible matches, or files…" aria-label="Search broken entity IDs, possible matches, or files"></div>
-    <details class="audit-section" id="staleSection" open><summary class="audit-toggle">Broken references to investigate</summary><p class="intro">Find entity IDs referenced by your configuration but missing from the current registry or live state. Review exact usage and replacement evidence before any repair.</p><div id="staleResults"><div class="empty">Run a scan to check for candidates.</div></div></details>
+    <details class="audit-section" id="staleSection" open><summary class="audit-toggle">Broken references to investigate</summary><p class="intro">Find references missing from the current registry and live state. Reconcile each one against deleted-entity history and current identity metadata before deciding whether it was renamed, recreated, moved, or genuinely removed. Missing does not mean disposable.</p><div id="staleResults"><div class="empty">Run a scan to check for candidates.</div></div></details>
     <details class="audit-section" id="dashboardHealthSection"><summary class="audit-toggle">Dashboard health and live preview</summary><p class="intro">Check dashboard references against registry and live states, then inspect the affected dashboard in the same workflow.</p><div id="dashboardHealthResults"><div class="empty">Run a scan to check dashboard references.</div></div></details>
     <details class="audit-section" id="readdedSection"><summary class="audit-toggle">Re-added device recovery</summary><p class="intro">Strong identity evidence is required. Each approved action creates and verifies a Home Assistant backup, quarantines the old entry, verifies the replacement, and retains an undo path.</p><div id="readdedResults"><div class="empty">Run a scan to check for re-added devices.</div></div></details>
   </section>
@@ -239,16 +239,28 @@ function renderStale(){
    ? '<p class="recovery-note">Deleted entity history'+(suggestion.deleted_platform?' · Integration: <b>'+esc(suggestion.deleted_platform)+'</b>':'')+(suggestion.deleted_at?' · Recorded: '+esc(suggestion.deleted_at):'')+'</p>'
    : '';
   return '<details class="candidate"><summary><span class="entity-id">'+esc(id)+'</span><span class="count">'+refs.reduce((n,r)=>n+r.count,0)+' reference(s) · '+refs.length+' file(s)</span></summary>'+
-   '<div class="broken-entity-panel"><div class="eyebrow">Broken entity</div><div class="broken-entity-id">'+esc(id)+'</div><p>'+esc(refs[0].broken_status==='confirmed_missing'?'Confirmed absent from registry and live states.':'Not confirmed: live Home Assistant state could not be checked.')+'</p></div>'+
+   '<div class="broken-entity-panel"><div class="eyebrow">Missing reference · reconciliation required</div><div class="broken-entity-id">'+esc(id)+'</div><p>'+esc(refs[0].broken_status==='confirmed_missing'?'Confirmed absent from registry and live states.':'Not confirmed: live Home Assistant state could not be checked.')+'</p></div>'+
    '<p><b>'+esc(refs[0].priority||'Needs review')+'</b> · '+esc(refs[0].reason||'This entity-like ID is absent from the current registry.')+'</p>'+deleted+
    '<div class="possible-match-panel"><b>Possible match</b>'+
-    (matches.length?'<p class="recovery-note">Ranked by same-domain entity-ID similarity. This is a discovery hint, not proof that the entities represent the same device.</p>'+
-     matches.map(match=>'<div class="possible-match-row"><div><code>'+esc(match.entity_id)+'</code><span class="match-score">'+Math.round((match.similarity||0)*100)+'% name similarity</span></div><button class="quiet" type="button" data-select-match="'+esc(match.entity_id)+'">Use possible match</button></div>').join('')
-     :'<p class="recovery-note">'+esc(suggestion.detail||'No sufficiently similar existing entity was found.')+'</p>')+
+    (matches.length?'<p class="recovery-note">'+esc(suggestion.detail||'Review candidate evidence before choosing a successor.')+'</p>'+
+     matches.map(match=>{
+      const strong=match.confidence==='high';
+      const evidence=(match.identity_evidence||[]).filter(item=>item.status==='match').map(item=>'<li>'+esc(item.type)+' · '+esc(item.strength)+'</li>').join('');
+      return '<div class="possible-match-row"><div><code>'+esc(match.entity_id)+'</code><span class="match-score">'+(strong?'Strong identity evidence':'Name similarity only · '+Math.round((match.similarity||0)*100)+'%')+'</span>'+(strong?'<small class="recovery-note">'+esc(match.identity_reason||'Identity metadata matches')+(evidence?'<ul>'+evidence+'</ul>':'')+'</small>':'<small class="recovery-note">Not proof of identity; verify the device and integration.</small>')+'</div><button class="quiet" type="button" data-select-match="'+esc(match.entity_id)+'">Use candidate</button></div>';
+     }).join('')
+     :'<p class="recovery-note">'+esc(suggestion.detail||'No successor could be established. This is not a removal recommendation.')+'</p>')+
    '</div>'+
-   refs.map(ref=>'<div class="reference-location"><b>Used in · '+esc(ref.category)+'</b>'+evidenceHtml(ref)+
-    (ref.category==='Historical'?'':'<div class="repair-controls"><label>Possible match / replacement entity ID</label><input type="text" class="repair-replacement" placeholder="Choose a possible match or enter an ID" autocomplete="off"><button class="quiet" type="button" data-repair-preview="1" data-old-id="'+esc(id)+'" data-file="'+esc(ref.file)+'">Preview reference repair</button><div class="repair-preview"></div></div>')
-   ).join('')+'</details>';
+   refs.map(ref=>{
+    const dashboardRows=(report?.dashboard_health||[]).filter(row=>row.entity_id===id&&row.file===ref.file);
+    const cards=[...new Map(dashboardRows.flatMap(row=>row.card_context||[]).map(card=>[card.card_path,card])).values()];
+    const dashboardContext=ref.category==='Dashboard'
+     ? (cards.length?'<div class="evidence"><b>Affected dashboard card(s)</b><ul>'+cards.map(card=>'<li>'+esc(card.card_type)+(card.card_title?' · '+esc(card.card_title):'')+' · '+esc(card.card_path)+'</li>').join('')+'</ul></div>':'<p class="recovery-note">Card-level context is not available for this stored dashboard format.</p>')+
+       (ref.dashboard_url?'<button class="dashboard-preview-button" type="button" data-dashboard-url="'+esc(ref.dashboard_url)+'">Preview affected dashboard</button>':'<p class="recovery-note">Dashboard preview route is unavailable.</p>')
+     : '';
+    return '<div class="reference-location"><b>Used in · '+esc(ref.category)+'</b>'+evidenceHtml(ref)+dashboardContext+
+     (ref.category==='Historical'?'':'<div class="repair-controls"><label>Possible successor / replacement entity ID</label><input type="text" class="repair-replacement" placeholder="Choose a candidate or enter an ID" autocomplete="off"><button class="quiet" type="button" data-repair-preview="1" data-old-id="'+esc(id)+'" data-file="'+esc(ref.file)+'">Preview reference repair</button><div class="repair-preview"></div></div>')+
+    '</div>';
+   }).join('')+'</details>';
  }).join('');
 }
 
