@@ -56,7 +56,7 @@ class ScannerTests(unittest.TestCase):
         self.temp.cleanup()
 
     def test_version_and_device_registry_diagnostics(self):
-        self.assertEqual(app.VERSION, "0.3.4")
+        self.assertEqual(app.VERSION, "0.3.5")
         devices = {
             "data": {
                 "devices": [
@@ -835,3 +835,80 @@ class DeletedEntityReconciliationTests(unittest.TestCase):
         self.assertIsNone(result["entity_id"])
         self.assertEqual(result["identity_match_count"], 0)
         self.assertEqual(result["candidates"][0]["confidence"], "name_similarity_only")
+
+
+class PersonTrackerReconciliationTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        (self.root / ".storage").mkdir()
+        self.config_patch = patch.object(app, "CONFIG", self.root)
+        self.config_patch.start()
+
+    def tearDown(self):
+        self.config_patch.stop()
+        self.temp.cleanup()
+
+    def test_loads_current_person_collection_storage_read_only(self):
+        payload = {
+            "version": 2,
+            "key": "person",
+            "data": {"items": [
+                {"id": "mubin", "name": "Mubin", "device_trackers": [
+                    "device_tracker.pixel_9", "sensor.not_a_tracker"
+                ]}
+            ]},
+        }
+        (self.root / ".storage" / "person").write_text(json.dumps(payload), encoding="utf-8")
+        result = app.load_person_assignments()
+        self.assertTrue(result["available"])
+        self.assertEqual(result["format"], "collection_items")
+        self.assertEqual(result["persons"][0]["name"], "Mubin")
+        self.assertEqual(result["persons"][0]["device_trackers"], ["device_tracker.pixel_9"])
+
+    def test_supports_legacy_persons_storage_shape(self):
+        payload = {"data": {"persons": [
+            {"id": "mubin", "name": "Mubin", "device_trackers": ["device_tracker.pixel_9"]}
+        ]}}
+        (self.root / ".storage" / "person").write_text(json.dumps(payload), encoding="utf-8")
+        result = app.load_person_assignments()
+        self.assertTrue(result["available"])
+        self.assertEqual(result["format"], "legacy_persons")
+
+    def test_unavailable_tracker_is_not_marked_missing(self):
+        storage = {"available": True, "persons": [
+            {"id": "mubin", "name": "Mubin", "device_trackers": ["device_tracker.pixel_9"]}
+        ]}
+        findings = app.build_person_tracker_findings(
+            storage,
+            [{"entity_id": "person.mubin"}, {"entity_id": "device_tracker.pixel_9"}],
+            {"device_tracker.pixel_9": {"entity_id": "device_tracker.pixel_9", "state": "unavailable"}},
+        )
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["status"], "unavailable")
+        self.assertEqual(findings[0]["action"], "review_only")
+
+    def test_missing_tracker_is_reported_with_reconciliation_hint_not_removal(self):
+        storage = {"available": True, "persons": [
+            {"id": "mubin", "name": "Mubin", "device_trackers": ["device_tracker.old_phone"]}
+        ]}
+        deleted = {"device_tracker.old_phone": {
+            "platform": "mobile_app", "unique_id": "phone-unique", "config_entry_id": "entry-mobile"
+        }}
+        registry = [
+            {"entity_id": "person.mubin"},
+            {"entity_id": "device_tracker.new_phone", "platform": "mobile_app",
+             "unique_id": "phone-unique", "config_entry_id": "entry-mobile"},
+        ]
+        findings = app.build_person_tracker_findings(storage, registry, {}, deleted)
+        self.assertEqual(findings[0]["status"], "missing")
+        self.assertEqual(findings[0]["person_name"], "Mubin")
+        self.assertEqual(findings[0]["replacement_suggestion"]["confidence"], "high")
+        self.assertEqual(findings[0]["replacement_suggestion"]["entity_id"], "device_tracker.new_phone")
+        self.assertEqual(findings[0]["action"], "review_only")
+
+    def test_unknown_person_storage_schema_is_not_guessed(self):
+        (self.root / ".storage" / "person").write_text(json.dumps({"data": {"users": []}}), encoding="utf-8")
+        result = app.load_person_assignments()
+        self.assertFalse(result["available"])
+        self.assertEqual(result["persons"], [])
