@@ -42,17 +42,17 @@ def _usage_role(source_type, line):
         return "historical_record"
     if source_type == "dashboard":
         return "dashboard_card"
-    if re.search(r"\btrigger\\b|\\bplatform\s*:", lower):
+    if re.search(r"\btrigger\b|\bplatform\s*:", lower):
         return "trigger"
-    if re.search(r"\bcondition\\b", lower):
+    if re.search(r"\bcondition\b", lower):
         return "condition"
-    if re.search(r"\baction\\b|\\bservice\s*:|\\bperform-action\\b", lower):
+    if re.search(r"\baction\b|\bservice\s*:|\bperform-action\b", lower):
         return "action"
     if re.search(r"\btarget\s*:", lower):
         return "target"
     if re.search(r"\b(states|is_state|is_state_attr|has_value|expand)\s*\(", lower) or "{{" in lower or "{%" in lower:
         return "template"
-    if re.search(r"\b(device_trackers|device_tracker)\\b", lower):
+    if re.search(r"\b(device_trackers|device_tracker)\b", lower):
         return "person_tracker_or_tracker"
     if re.search(r"\b(entities|entity_id|members)\s*:", lower):
         return "entity_reference"
