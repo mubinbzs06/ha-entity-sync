@@ -1006,11 +1006,6 @@ def scan():
     person_tracker_findings = build_person_tracker_findings(
         person_storage, registry, live_states, deleted_history
     )
-    dependency_graph = build_dependency_graph(
-        results, stale, dashboard_health=[],
-        person_tracker_findings=person_tracker_findings,
-        source_texts=source_texts,
-    )
     phase_timings["live_states_and_deleted_history"] = round(time.monotonic() - phase_started, 4)
     phase_started = time.monotonic()
     known_for_suggestions = set(entity_ids)
@@ -1033,6 +1028,11 @@ def scan():
             )
     dashboard_references = [item for item in results + stale if item.get("category") == "Dashboard"]
     dashboard_health = build_dashboard_health(dashboard_references, registry, live_states)
+    dependency_graph = build_dependency_graph(
+        results, stale, dashboard_health=dashboard_health,
+        person_tracker_findings=person_tracker_findings,
+        source_texts=source_texts,
+    )
     phase_timings["dashboard_health_and_card_context"] = round(time.monotonic() - phase_started, 4)
     phase_started = time.monotonic()
     dashboard_health_counts = {status: sum(1 for item in dashboard_health if item["health_status"] == status) for status in ("available", "unavailable", "unknown", "missing", "no_live_state", "not_checked")}
