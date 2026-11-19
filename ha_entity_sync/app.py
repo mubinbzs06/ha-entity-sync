@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 
 from recovery import RecoveryError, load_audit, recover_entity_pair, rollback_entity_recovery
 from config_repair import ConfigRepairError, preview_config_repair, apply_config_repair, rollback_config_repair
+from dependency_graph import build_dependency_graph
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -22,7 +23,7 @@ REGISTRY = CONFIG / ".storage" / "core.entity_registry"
 MAX_FILE_BYTES = 5 * 1024 * 1024
 MAX_SCAN_FILES = 5000
 MAX_SCAN_BYTES = 100 * 1024 * 1024
-VERSION = "0.3.5"
+VERSION = "0.3.6"
 PORT = 8099
 SCAN_CACHE_SECONDS = 60
 IGNORED_STALE_DOMAINS = {"conversation"}
@@ -911,6 +912,7 @@ def scan():
     scanned = 0
     scanned_bytes = 0
     scan_warnings = []
+    source_texts = {}
 
     for path in candidate_files():
         if scanned >= MAX_SCAN_FILES:
@@ -934,6 +936,7 @@ def scan():
         scanned += 1
         scanned_bytes += file_size
         rel = str(path.relative_to(CONFIG))
+        source_texts[rel] = "\n".join(lines)
         category = classify_reference(Path(rel))
         for line_no, line in enumerate(lines, 1):
             matches = list(ENTITY_RE.finditer(line))
@@ -1002,6 +1005,11 @@ def scan():
     person_storage = load_person_assignments()
     person_tracker_findings = build_person_tracker_findings(
         person_storage, registry, live_states, deleted_history
+    )
+    dependency_graph = build_dependency_graph(
+        results, stale, dashboard_health=[],
+        person_tracker_findings=person_tracker_findings,
+        source_texts=source_texts,
     )
     phase_timings["live_states_and_deleted_history"] = round(time.monotonic() - phase_started, 4)
     phase_started = time.monotonic()
@@ -1086,6 +1094,7 @@ def scan():
         "person_storage_format": person_storage.get("format"),
         "person_storage_warning": person_storage.get("warning"),
         "person_tracker_findings": person_tracker_findings,
+        "dependency_graph": dependency_graph,
         "person_tracker_findings_count": len(person_tracker_findings),
         "person_tracker_missing_count": sum(1 for item in person_tracker_findings if item["status"] == "missing"),
         "person_tracker_unavailable_count": sum(1 for item in person_tracker_findings if item["status"] == "unavailable"),
