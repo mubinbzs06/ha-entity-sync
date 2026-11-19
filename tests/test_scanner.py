@@ -56,7 +56,7 @@ class ScannerTests(unittest.TestCase):
         self.temp.cleanup()
 
     def test_version_and_device_registry_diagnostics(self):
-        self.assertEqual(app.VERSION, "0.3.3")
+        self.assertEqual(app.VERSION, "0.3.4")
         devices = {
             "data": {
                 "devices": [
@@ -831,6 +831,7 @@ class DeletedEntityReconciliationTests(unittest.TestCase):
             deleted,
             registry=registry,
         )
-        self.assertEqual(result["confidence"], "none")
+        self.assertEqual(result["confidence"], "name_similarity_only")
         self.assertIsNone(result["entity_id"])
         self.assertEqual(result["identity_match_count"], 0)
+        self.assertEqual(result["candidates"][0]["confidence"], "name_similarity_only")
