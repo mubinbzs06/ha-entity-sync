@@ -959,6 +959,7 @@ def scan():
                         entry["matches"].append(evidence)
                 elif entity_id.split(".", 1)[0] not in IGNORED_STALE_DOMAINS and entity_id.split(".", 1)[0] in known_domains and (
                     category in {"Historical", "Dashboard"} or ENTITY_CONTEXT_RE.search(line)
+                    or (category == "Active configuration" and entity_id.startswith("device_tracker."))
                 ):
                     key = (entity_id, rel)
                     entry = candidates.setdefault(key, {
