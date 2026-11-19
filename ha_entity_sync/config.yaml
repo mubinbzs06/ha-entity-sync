@@ -1,7 +1,7 @@
 name: HA Entity Sync
-version: "0.3.4"
+version: "0.3.5"
 slug: ha_entity_sync
-description: Broken entity reference detection and explicitly approved, backed-up repair
+description: Reconcile missing entity references and Person device trackers before approved repair
 url: https://github.com/mubinbzs06/ha-entity-sync
 arch:
   - aarch64

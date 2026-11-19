@@ -22,7 +22,7 @@ REGISTRY = CONFIG / ".storage" / "core.entity_registry"
 MAX_FILE_BYTES = 5 * 1024 * 1024
 MAX_SCAN_FILES = 5000
 MAX_SCAN_BYTES = 100 * 1024 * 1024
-VERSION = "0.3.4"
+VERSION = "0.3.5"
 PORT = 8099
 SCAN_CACHE_SECONDS = 60
 IGNORED_STALE_DOMAINS = {"conversation"}
@@ -429,6 +429,102 @@ def load_device_names():
         }
     except (OSError, ValueError, TypeError):
         return {}
+
+
+
+def load_person_assignments():
+    """Read the documented Person storage collection without modifying it."""
+    path = CONFIG / ".storage" / "person"
+    if not safe_config_file(path) or not path.is_file():
+        return {"available": False, "format": None, "persons": [], "warning": "Person storage file is unavailable; no Person assignment conclusions can be made."}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError, TypeError):
+        return {"available": False, "format": None, "persons": [], "warning": "Person storage could not be read as valid JSON."}
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, dict):
+        return {"available": False, "format": None, "persons": [], "warning": "Person storage has an unrecognized envelope; assignments were not inferred."}
+    # Current PersonStore uses collection storage: data.items. Older storage
+    # versions used data.persons and are still recognized without migration.
+    if isinstance(data.get("items"), list):
+        people, storage_format = data["items"], "collection_items"
+    elif isinstance(data.get("persons"), list):
+        people, storage_format = data["persons"], "legacy_persons"
+    else:
+        return {"available": False, "format": None, "persons": [], "warning": "Person storage schema was not recognized; assignments were not inferred."}
+    clean = []
+    for person in people:
+        if not isinstance(person, dict):
+            continue
+        trackers = person.get("device_trackers") or []
+        if not isinstance(trackers, list):
+            continue
+        clean.append({
+            "id": person.get("id"),
+            "name": person.get("name") or person.get("id") or "Unnamed person",
+            "device_trackers": sorted({
+                tracker for tracker in trackers
+                if isinstance(tracker, str) and tracker.startswith("device_tracker.")
+            }),
+        })
+    return {"available": True, "format": storage_format, "persons": clean, "warning": None}
+
+
+def build_person_tracker_findings(person_storage, registry, live_states, deleted_history=None):
+    """Classify stored Person assignments; missing is a finding, never a removal action."""
+    if not person_storage.get("available"):
+        return []
+    registry_by_id = {item.get("entity_id"): item for item in registry if item.get("entity_id")}
+    registry_ids = set(registry_by_id)
+    live_ids = set(live_states) if live_states is not None else set()
+    findings = []
+    for person in person_storage.get("persons", []):
+        person_id = person.get("id")
+        person_entity_id = "person." + str(person_id) if person_id else None
+        if person_entity_id not in registry_ids:
+            person_entity_id = None
+        for tracker_id in person.get("device_trackers", []):
+            registered = tracker_id in registry_ids
+            state_record = live_states.get(tracker_id) if live_states is not None else None
+            if live_states is None:
+                status = "not_checked"
+                detail = "Live states unavailable; tracker status cannot be confirmed."
+            elif state_record is not None and state_record.get("state") == "unavailable":
+                status = "unavailable"
+                detail = "Tracker is present in live states but currently unavailable; keep the assignment pending review."
+            elif state_record is not None and state_record.get("state") == "unknown":
+                status = "unknown"
+                detail = "Tracker is present in live states with an unknown state; this is not a missing assignment."
+            elif state_record is not None:
+                status = "available"
+                detail = "Tracker is present in live Home Assistant states."
+            elif registered:
+                status = "registered_no_live_state"
+                detail = "Tracker remains registered but has no live state; it may be temporarily absent."
+            else:
+                status = "missing"
+                detail = "Tracker is absent from both the current entity registry and live states."
+            suggestion = None
+            if status == "missing":
+                suggestion = suggest_missing_entity_replacement(
+                    tracker_id, registry_ids | live_ids, deleted_history, registry=registry
+                )
+            findings.append({
+                "person_id": person_id,
+                "person_name": person.get("name") or "Unnamed person",
+                "person_entity_id": person_entity_id,
+                "tracker_entity_id": tracker_id,
+                "status": status,
+                "detail": detail,
+                "replacement_suggestion": suggestion,
+                "action": "review_only",
+            })
+    findings.sort(key=lambda item: (
+        {"missing": 0, "not_checked": 1, "unavailable": 2, "unknown": 3,
+         "registered_no_live_state": 4, "available": 5}.get(item["status"], 6),
+        item["person_name"].lower(), item["tracker_entity_id"]
+    ))
+    return findings
 
 
 def line_update_evidence(reference, old_id, new_id):
@@ -863,6 +959,7 @@ def scan():
                         entry["matches"].append(evidence)
                 elif entity_id.split(".", 1)[0] not in IGNORED_STALE_DOMAINS and entity_id.split(".", 1)[0] in known_domains and (
                     category in {"Historical", "Dashboard"} or ENTITY_CONTEXT_RE.search(line)
+                    or (category == "Active configuration" and entity_id.startswith("device_tracker."))
                 ):
                     key = (entity_id, rel)
                     entry = candidates.setdefault(key, {
@@ -902,6 +999,10 @@ def scan():
         item["priority"] = "Active/dashboard evidence" if rank == 0 else "Needs review evidence" if rank == 1 else "Historical-only evidence"
     live_states = fetch_live_states()
     deleted_history = load_deleted_entity_history()
+    person_storage = load_person_assignments()
+    person_tracker_findings = build_person_tracker_findings(
+        person_storage, registry, live_states, deleted_history
+    )
     phase_timings["live_states_and_deleted_history"] = round(time.monotonic() - phase_started, 4)
     phase_started = time.monotonic()
     known_for_suggestions = set(entity_ids)
@@ -981,6 +1082,14 @@ def scan():
         "dashboard_health_count": len(dashboard_health),
         "dashboard_health_counts": dashboard_health_counts,
         "dashboard_health_checked": live_states is not None,
+        "person_assignments_checked": person_storage.get("available", False),
+        "person_storage_format": person_storage.get("format"),
+        "person_storage_warning": person_storage.get("warning"),
+        "person_tracker_findings": person_tracker_findings,
+        "person_tracker_findings_count": len(person_tracker_findings),
+        "person_tracker_missing_count": sum(1 for item in person_tracker_findings if item["status"] == "missing"),
+        "person_tracker_unavailable_count": sum(1 for item in person_tracker_findings if item["status"] == "unavailable"),
+        "person_tracker_not_checked_count": sum(1 for item in person_tracker_findings if item["status"] == "not_checked"),
         "potentially_stale": stale,
         "potentially_stale_entities": len({item["entity_id"] for item in stale}),
         "potentially_stale_hits": sum(item["count"] for item in stale),
