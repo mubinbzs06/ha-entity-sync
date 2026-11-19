@@ -447,8 +447,44 @@ def enrich_dashboard_references(references):
     return enriched
 
 
+def build_dashboard_card_context_index(payload):
+    """Index Lovelace card context by entity ID in one dashboard traversal."""
+    contexts = {}
+    seen = {}
+
+    def walk(value, location="dashboard", active_cards=()):
+        if isinstance(value, dict):
+            cards = active_cards
+            card_path = ".cards[" in location or ".elements[" in location
+            if card_path and isinstance(value.get("type"), str):
+                title = value.get("title") or value.get("name") or value.get("label") or value.get("heading")
+                card = {
+                    "card_type": value.get("type"),
+                    "card_title": title or "",
+                    "card_path": location,
+                }
+                cards = active_cards + (card,)
+            for key, child in value.items():
+                walk(child, location + "." + str(key), cards)
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                walk(child, location + "[" + str(index) + "]", active_cards)
+        elif isinstance(value, str) and active_cards:
+            for match in ENTITY_RE.finditer(value):
+                entity_id = match.group(0)
+                entity_seen = seen.setdefault(entity_id, set())
+                for card in active_cards:
+                    card_path = card["card_path"]
+                    if card_path not in entity_seen:
+                        contexts.setdefault(entity_id, []).append(card)
+                        entity_seen.add(card_path)
+
+    walk(payload)
+    return contexts
+
+
 def find_dashboard_card_context(file_path, entity_id, payload=None):
-    """Return Lovelace card objects containing an entity; accept a parsed payload for reuse."""
+    """Return indexed Lovelace card objects containing an entity."""
     if payload is None:
         path = CONFIG / file_path
         try:
@@ -457,36 +493,13 @@ def find_dashboard_card_context(file_path, entity_id, payload=None):
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, ValueError, TypeError):
             return []
-
-    def contains_entity(value):
-        if isinstance(value, str):
-            return re.search(r"(?<![A-Za-z0-9_])" + re.escape(entity_id) + r"(?![A-Za-z0-9_])", value) is not None
-        if isinstance(value, dict):
-            return any(contains_entity(child) for child in value.values())
-        if isinstance(value, list):
-            return any(contains_entity(child) for child in value)
-        return False
-
-    found = []
-    def walk(value, location="dashboard"):
-        if isinstance(value, dict):
-            card_path = ".cards[" in location or ".elements[" in location
-            if card_path and isinstance(value.get("type"), str) and contains_entity(value):
-                title = value.get("title") or value.get("name") or value.get("label") or value.get("heading")
-                found.append({"card_type": value.get("type"), "card_title": title or "", "card_path": location})
-            for key, child in value.items():
-                walk(child, location + "." + str(key))
-        elif isinstance(value, list):
-            for index, child in enumerate(value):
-                walk(child, location + "[" + str(index) + "]")
-    walk(payload)
-    return found
+    return build_dashboard_card_context_index(payload).get(entity_id, [])
 
 def build_dashboard_health(dashboard_references, registry, live_states):
     """Classify every discovered dashboard entity reference against registry and live states."""
     registered = {item["entity_id"] for item in registry}
     routes = dashboard_route_index()
-    card_context_cache = {}
+    dashboard_context_indexes = {}
     dashboard_payload_cache = {}
     health = []
     for reference in dashboard_references:
@@ -516,8 +529,7 @@ def build_dashboard_health(dashboard_references, registry, live_states):
             detail = "The dashboard references an ID absent from both the entity registry and live states."
         item = dict(reference)
         file_path = reference.get("file", "")
-        context_key = (file_path, entity_id)
-        if context_key not in card_context_cache:
+        if file_path not in dashboard_context_indexes:
             if file_path not in dashboard_payload_cache:
                 path = CONFIG / file_path
                 try:
@@ -528,11 +540,12 @@ def build_dashboard_health(dashboard_references, registry, live_states):
                 except (OSError, UnicodeError, ValueError, TypeError):
                     dashboard_payload_cache[file_path] = None
             payload = dashboard_payload_cache[file_path]
-            card_context_cache[context_key] = (
-                find_dashboard_card_context(file_path, entity_id, payload)
-                if payload is not None else []
+            dashboard_context_indexes[file_path] = (
+                build_dashboard_card_context_index(payload)
+                if payload is not None else {}
             )
-        item.update({"registry_status": "registered" if is_registered else "not_registered", "live_state": state, "health_status": status, "health_detail": detail, "dashboard_url": routes.get(file_path), "dashboard_preview_available": bool(routes.get(file_path)), "card_context": card_context_cache[context_key]})
+        card_context = dashboard_context_indexes[file_path].get(entity_id, [])
+        item.update({"registry_status": "registered" if is_registered else "not_registered", "live_state": state, "health_status": status, "health_detail": detail, "dashboard_url": routes.get(file_path), "dashboard_preview_available": bool(routes.get(file_path)), "card_context": card_context})
         health.append(item)
     health.sort(key=lambda item: ({"missing": 0, "unavailable": 1, "unknown": 2, "no_live_state": 3, "not_checked": 4, "available": 5}.get(item["health_status"], 6), item["entity_id"], item.get("file", "")))
     return health
