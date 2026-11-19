@@ -106,3 +106,10 @@ A missing reference is not assumed to be a dead entity. When Home Assistant reta
 Name similarity remains a discovery hint only. The Repair Center shows the evidence and the affected configuration locations. Dashboard references include card context and a live dashboard preview when Home Assistant exposes a route. Existing configuration repair remains a per-file preview and explicit approval workflow.
 
 The cleanup sequence is: discover missing references; reconcile against deleted history and current identity; inspect all affected dashboards and configuration; preview exact changes; require a verified backup and explicit approval; apply only the approved references; then verify registry, stored configuration, and rendered dashboard separately where possible. No entity, tracker, or reference is deleted merely because it appears missing or unused. Dashboard and automation behavior must be preserved during any rework.
+
+
+### 0.3.5 People & device tracker review
+
+The Repair Center now reads the Person integration's .storage/person collection in read-only mode and checks each assigned device_tracker.* against registry and live states. Unavailable/unknown trackers are retained as distinct states. A tracker absent from both registry and live states is shown as missing and compared with deleted-registry identity history for possible renamed/recreated successors. Candidate evidence is shown; no removal, ignore, or assignment write action is enabled.
+
+Current collection storage (data.items) and the legacy data.persons schema are recognized. Unknown schemas are not guessed. YAML-defined Person assignments are still found by the existing configuration scanner but are not yet grouped by Person in this phase.
