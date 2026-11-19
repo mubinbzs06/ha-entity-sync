@@ -661,6 +661,53 @@ class DashboardRouteTests(unittest.TestCase):
         self.config_patch.stop()
         self.temp.cleanup()
 
+    def test_dashboard_card_context_index_matches_multiple_entities_in_one_pass(self):
+        payload = {
+            "data": {
+                "config": {
+                    "views": [{
+                        "cards": [
+                            {
+                                "type": "entities",
+                                "title": "Network",
+                                "entities": [
+                                    "sensor.pi_hole_ads_blocked",
+                                    {"entity": "sensor.pi_hole_dns_queries"},
+                                ],
+                            },
+                            {
+                                "type": "sensor",
+                                "entity": "sensor.room_temperature",
+                            },
+                        ]
+                    }]
+                }
+            }
+        }
+        index = app.build_dashboard_card_context_index(payload)
+        self.assertEqual(index["sensor.pi_hole_ads_blocked"][0]["card_title"], "Network")
+        self.assertEqual(index["sensor.pi_hole_dns_queries"][0]["card_type"], "entities")
+        self.assertEqual(index["sensor.room_temperature"][0]["card_type"], "sensor")
+        self.assertEqual(len(index["sensor.pi_hole_ads_blocked"]), 1)
+
+    def test_dashboard_health_reuses_card_context_index_per_dashboard(self):
+        dashboard = self.root / ".storage" / "lovelace.dashboard_test"
+        dashboard.write_text(json.dumps({
+            "data": {"config": {"views": [{"cards": [
+                {"type": "sensor", "entity": "sensor.one"},
+                {"type": "sensor", "entity": "sensor.two"},
+            ]}]}}
+        }), encoding="utf-8")
+        references = [
+            {"entity_id": "sensor.one", "file": ".storage/lovelace.dashboard_test", "category": "Dashboard"},
+            {"entity_id": "sensor.two", "file": ".storage/lovelace.dashboard_test", "category": "Dashboard"},
+        ]
+        with patch.object(app, "build_dashboard_card_context_index", wraps=app.build_dashboard_card_context_index) as indexed:
+            result = app.build_dashboard_health(references, [], {"sensor.one": {"state": "1"}, "sensor.two": {"state": "2"}})
+        self.assertEqual(indexed.call_count, 1)
+        self.assertEqual([item["card_type"] for item in result[0]["card_context"]], ["sensor"])
+        self.assertEqual([item["card_type"] for item in result[1]["card_context"]], ["sensor"])
+
     def test_default_dashboard_route_is_available(self):
         self.assertEqual(app.dashboard_route_index()[".storage/lovelace"], "/lovelace")
 
