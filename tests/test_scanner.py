@@ -56,7 +56,7 @@ class ScannerTests(unittest.TestCase):
         self.temp.cleanup()
 
     def test_version_and_device_registry_diagnostics(self):
-        self.assertEqual(app.VERSION, "0.3.5")
+        self.assertEqual(app.VERSION, "0.3.6")
         devices = {
             "data": {
                 "devices": [

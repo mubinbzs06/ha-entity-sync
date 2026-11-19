@@ -123,6 +123,7 @@ main{padding:28px clamp(16px,3vw,42px);min-width:0}.top{display:flex;align-items
   <section id="repairCenter" class="workspace">
     <div class="workspace-head"><div><div class="eyebrow">01 · Investigate and fix</div><h2>Repair Center</h2><p>Broken references, affected locations, replacement evidence, and the repair-and-verify workflow.</p></div></div>
     <div class="search-sticky repair-search"><input class="search" id="repairFilter" type="search" placeholder="Search broken entity IDs, possible matches, or files…" aria-label="Search broken entity IDs, possible matches, or files"></div>
+    <details class="audit-section" id="dependencyMapSection"><summary class="audit-toggle">Unified dependency map</summary><p class="intro">One read-only view of entity dependencies across dashboards, automations, scripts, scenes, groups, templates, configuration, historical records, and Person tracker assignments. Source paths and line numbers are preserved where available; ambiguous parent context is left blank.</p><div id="dependencyMapResults"><div class="empty">Run a scan to build the dependency map.</div></div></details>
     <details class="audit-section" id="staleSection" open><summary class="audit-toggle">Broken references to investigate</summary><p class="intro">Find references missing from the current registry and live state. Reconcile each one against deleted-entity history and current identity metadata before deciding whether it was renamed, recreated, moved, or genuinely removed. Missing does not mean disposable.</p><div id="staleResults"><div class="empty">Run a scan to check for candidates.</div></div></details>
     <details class="audit-section" id="dashboardHealthSection"><summary class="audit-toggle">Dashboard health and live preview</summary><p class="intro">Check dashboard references against registry and live states, then inspect the affected dashboard in the same workflow.</p><div id="dashboardHealthResults"><div class="empty">Run a scan to check dashboard references.</div></div></details>
     <details class="audit-section" id="readdedSection"><summary class="audit-toggle">Re-added device recovery</summary><p class="intro">Strong identity evidence is required. Each approved action creates and verifies a Home Assistant backup, quarantines the old entry, verifies the replacement, and retains an undo path.</p><div id="readdedResults"><div class="empty">Run a scan to check for re-added devices.</div></div></details>
@@ -416,11 +417,21 @@ function renderNaming(){
  rail.classList.toggle('visible',rows.length>=12);
  requestAnimationFrame(syncActiveLetter);
 }
+function renderDependencyMap(){
+ const graph=report?.dependency_graph;
+ const q=$('repairFilter').value.trim().toLowerCase();
+ if(!graph){$('dependencyMapResults').innerHTML='<div class="empty">Dependency map is unavailable for this scan.</div>';return;}
+ const edges=(graph.edges||[]).filter(e=>(e.entity_id+' '+e.source_type+' '+e.source_path+' '+e.usage_role+' '+(e.parent_object?.value||'')).toLowerCase().includes(q));
+ if(!edges.length){$('dependencyMapResults').innerHTML='<div class="empty">No dependencies match this search.</div>';return;}
+ const groups=new Map();
+ for(const edge of edges){if(!groups.has(edge.entity_id))groups.set(edge.entity_id,[]);groups.get(edge.entity_id).push(edge);}
+ $('dependencyMapResults').innerHTML='<p class="recovery-note">'+esc(graph.node_count)+' entities · '+esc(graph.edge_count)+' dependency links · read-only</p>'+[...groups.entries()].map(([id,items])=>'<details class="finding"><summary><b>'+esc(id)+'</b><span class="count">'+items.length+' link(s)</span></summary>'+items.map(e=>'<div class="evidence"><div class="evidence-head"><span class="path">'+esc(e.source_type)+' · '+esc(e.source_path)+'</span><span class="line">'+(e.line?'Line '+esc(e.line):'No line number')+'</span></div><p>'+esc(e.usage_role)+(e.parent_object?' · '+esc(e.parent_object.key)+': '+esc(e.parent_object.value):'')+(e.health_status?' · '+esc(e.health_status):'')+'</p>'+(e.replacement_suggestion?'<p>Reconciliation: '+esc(e.replacement_suggestion.confidence||'review')+(e.replacement_suggestion.candidates?.length?' · Candidate(s): '+e.replacement_suggestion.candidates.map(candidate=>esc(candidate.entity_id)).join(', '):'')+'</p>':'')+(e.card_context||[]).map(card=>'<p>Card: '+esc(card.card_type)+(card.card_title?' · '+esc(card.card_title):'')+' · '+esc(card.card_path)+'</p>').join('')+'</div>').join('')+'</details>').join('');
+}
 function render(){
  if(!report)return;
  const html=groupedResults();
  $('results').innerHTML=html||'<div class="empty">No matching registered references.</div>';
- renderDashboardHealth();renderStale();renderReadded();renderPersonTrackers();renderRecoveryHistory();renderCleanNames();renderNaming();
+ renderDependencyMap();renderDashboardHealth();renderStale();renderReadded();renderPersonTrackers();renderRecoveryHistory();renderCleanNames();renderNaming();
 }
 async function runScan(force=false){
  report=null;
@@ -470,12 +481,12 @@ function clearSession(){
 window.addEventListener('pagehide',clearSession);
 window.addEventListener('pageshow',event=>{if(event.persisted)clearSession();runScan();});
 $('filter').addEventListener('input',render);
-$('repairFilter').addEventListener('input',renderStale);
+$('repairFilter').addEventListener('input',()=>{renderDependencyMap();renderStale();});
 $('rescanButton').addEventListener('click',()=>runScan(true));
 function exportData(){
  const active=(report?.results||[]).filter(item=>item.category==='Active configuration'||item.category==='Dashboard');
  const review=(report?.results||[]).filter(item=>item.category==='Needs review');
- return {exported_at:new Date().toISOString(),last_scanned_at:report?.last_scanned_at||null,read_only:true,dashboard_health:report?.dashboard_health||[],dashboard_health_checked:report?.dashboard_health_checked??false,active_dependencies:active,needs_review_references:review,stale_candidates:report?.potentially_stale||[],readded_pairs:report?.readded_pairs||[],clean_name_suggestions:report?.clean_name_suggestions||[]};
+ return {exported_at:new Date().toISOString(),last_scanned_at:report?.last_scanned_at||null,read_only:true,dependency_graph:report?.dependency_graph||null,dashboard_health:report?.dashboard_health||[],dashboard_health_checked:report?.dashboard_health_checked??false,active_dependencies:active,needs_review_references:review,stale_candidates:report?.potentially_stale||[],readded_pairs:report?.readded_pairs||[],clean_name_suggestions:report?.clean_name_suggestions||[]};
 }
 function downloadFile(name,type,content){
  const blob=new Blob([content],{type});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
