@@ -481,12 +481,12 @@ function clearSession(){
 window.addEventListener('pagehide',clearSession);
 window.addEventListener('pageshow',event=>{if(event.persisted)clearSession();runScan();});
 $('filter').addEventListener('input',render);
-$('repairFilter').addEventListener('input',renderStale);
+$('repairFilter').addEventListener('input',()=>{renderDependencyMap();renderStale();});
 $('rescanButton').addEventListener('click',()=>runScan(true));
 function exportData(){
  const active=(report?.results||[]).filter(item=>item.category==='Active configuration'||item.category==='Dashboard');
  const review=(report?.results||[]).filter(item=>item.category==='Needs review');
- return {exported_at:new Date().toISOString(),last_scanned_at:report?.last_scanned_at||null,read_only:true,dashboard_health:report?.dashboard_health||[],dashboard_health_checked:report?.dashboard_health_checked??false,active_dependencies:active,needs_review_references:review,stale_candidates:report?.potentially_stale||[],readded_pairs:report?.readded_pairs||[],clean_name_suggestions:report?.clean_name_suggestions||[]};
+ return {exported_at:new Date().toISOString(),last_scanned_at:report?.last_scanned_at||null,read_only:true,dependency_graph:report?.dependency_graph||null,dashboard_health:report?.dashboard_health||[],dashboard_health_checked:report?.dashboard_health_checked??false,active_dependencies:active,needs_review_references:review,stale_candidates:report?.potentially_stale||[],readded_pairs:report?.readded_pairs||[],clean_name_suggestions:report?.clean_name_suggestions||[]};
 }
 function downloadFile(name,type,content){
  const blob=new Blob([content],{type});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
