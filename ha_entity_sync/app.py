@@ -22,7 +22,7 @@ REGISTRY = CONFIG / ".storage" / "core.entity_registry"
 MAX_FILE_BYTES = 5 * 1024 * 1024
 MAX_SCAN_FILES = 5000
 MAX_SCAN_BYTES = 100 * 1024 * 1024
-VERSION = "0.3.3"
+VERSION = "0.3.4"
 PORT = 8099
 SCAN_CACHE_SECONDS = 60
 IGNORED_STALE_DOMAINS = {"conversation"}
@@ -92,49 +92,124 @@ def load_deleted_entity_history():
                 continue
             entity_id = item.get("entity_id")
             if entity_id:
+                # Keep only non-secret identity metadata needed to reconcile a
+                # deleted entity with a currently registered successor.
                 history[entity_id] = {
-                    "platform": item.get("platform"),
-                    "modified_at": item.get("modified_at"),
+                    key: item.get(key)
+                    for key in (
+                        "platform", "modified_at", "unique_id", "device_id",
+                        "config_entry_id", "original_name", "name",
+                        "entity_category",
+                    )
+                    if item.get(key) is not None
                 }
         return history
     except (OSError, ValueError, TypeError):
         return {}
 
 
-def suggest_missing_entity_replacement(entity_id, known_entity_ids, deleted_history=None):
-    """Return ranked same-domain possible matches; similarity is discovery, never identity proof."""
+def suggest_missing_entity_replacement(entity_id, known_entity_ids, deleted_history=None, registry=None):
+    """Rank possible successors using deleted-registry identity first, names only as hints."""
     deleted = (deleted_history or {}).get(entity_id)
+    known_ids = set(known_entity_ids or [])
+    registry_items = registry if isinstance(registry, list) else []
+    identity_matches = []
+
+    # A deleted registry record can retain lineage metadata. Compare it against
+    # every current registry entry, not just same-name or suffixed IDs.
+    if deleted:
+        for candidate in registry_items:
+            candidate_id = candidate.get("entity_id")
+            if not candidate_id or candidate_id == entity_id:
+                continue
+            identity = evaluate_replacement_identity(deleted, candidate)
+            if identity["eligible"]:
+                identity_matches.append({
+                    "entity_id": candidate_id,
+                    "confidence": "high",
+                    "method": "deleted_registry_identity",
+                    "identity_reason": identity["identity_reason"],
+                    "identity_evidence": identity["identity_evidence"],
+                    "identity_conflicts": identity["identity_conflicts"],
+                    "similarity": round(difflib.SequenceMatcher(None, entity_id, candidate_id).ratio(), 4),
+                })
+
     domain = entity_id.split(".", 1)[0]
-    candidates = sorted(
-        candidate for candidate in known_entity_ids
-        if candidate.split(".", 1)[0] == domain and candidate != entity_id
+    fuzzy_ids = sorted(
+        candidate for candidate in known_ids
+        if candidate.split(".", 1)[0] == domain
+        and candidate != entity_id
+        and candidate not in {item["entity_id"] for item in identity_matches}
     )
-    matches = difflib.get_close_matches(entity_id, candidates, n=3, cutoff=0.8)
-    ranked = [
+    fuzzy_matches = [
         {
             "entity_id": candidate,
             "similarity": round(difflib.SequenceMatcher(None, entity_id, candidate).ratio(), 4),
             "confidence": "name_similarity_only",
             "method": "same_domain_fuzzy",
+            "identity_reason": "",
+            "identity_evidence": [],
+            "identity_conflicts": [],
         }
-        for candidate in matches
+        for candidate in difflib.get_close_matches(entity_id, fuzzy_ids, n=3, cutoff=0.8)
     ]
+    identity_matches.sort(
+        key=lambda item: (
+            -sum(1 for evidence in item["identity_evidence"]
+                 if evidence.get("status") == "match" and evidence.get("strength") == "strong"),
+            item["entity_id"],
+        )
+    )
+    ranked = identity_matches + fuzzy_matches
+    unique_identity = len(identity_matches) == 1
+    ambiguous_identity = len(identity_matches) > 1
+
+    if unique_identity:
+        confidence = "high"
+        method = "deleted_registry_identity"
+        detail = (
+            "A unique registered candidate matches the deleted entity's integration identity: "
+            + identity_matches[0]["identity_reason"]
+            + ". This is a strong reconciliation candidate, not approval to change anything."
+        )
+    elif ambiguous_identity:
+        confidence = "ambiguous"
+        method = "deleted_registry_identity"
+        detail = (
+            "Multiple registered candidates match the deleted entity's identity metadata. "
+            "The match is ambiguous and must be reviewed; no candidate is selected automatically."
+        )
+    elif deleted:
+        confidence = "name_similarity_only" if fuzzy_matches else "none"
+        method = "deleted_entity_history"
+        detail = (
+            "Deleted-entity history was found, but it did not provide enough matching identity "
+            "metadata to establish a successor. Any listed name-similarity candidates are hints only."
+            if fuzzy_matches else
+            "Deleted-entity history was found, but no successor could be established from the "
+            "available identity metadata. This does not mean the entity should be removed."
+        )
+    else:
+        confidence = "name_similarity_only" if fuzzy_matches else "none"
+        method = "same_domain_fuzzy"
+        detail = (
+            "Possible matches are based on same-domain entity-ID similarity only. "
+            "They are discovery hints, not proof of identity."
+            if fuzzy_matches else "No sufficiently similar same-domain candidate was found."
+        )
+
     result = {
-        "entity_id": ranked[0]["entity_id"] if ranked and not deleted else None,
-        "candidates": ranked,
-        "confidence": "name_similarity_only" if ranked and not deleted else "none",
-        "method": "deleted_entity_history" if deleted else "same_domain_fuzzy",
-        "similarity_cutoff": 0.8,
-        "detail": (
-            "Home Assistant deleted-entity history was found"
-            + (f" for integration {deleted.get('platform')}" if deleted.get("platform") else "")
-            + ". Ranked possible matches below are name-similarity hints only."
-            if deleted else
-            "Possible match based on same-domain entity-ID similarity only. "
-            "This is not identity proof; verify the device and integration before repair."
-            if ranked else "No sufficiently similar same-domain entity was found."
+        "entity_id": identity_matches[0]["entity_id"] if unique_identity else (
+            fuzzy_matches[0]["entity_id"] if not deleted and fuzzy_matches else None
         ),
+        "candidates": ranked,
+        "confidence": confidence,
+        "method": method,
+        "similarity_cutoff": 0.8,
+        "detail": detail,
         "deleted_history_found": bool(deleted),
+        "identity_match_count": len(identity_matches),
+        "identity_match_ambiguous": ambiguous_identity,
     }
     if deleted:
         result.update({
@@ -839,7 +914,7 @@ def scan():
         stale_by_id.setdefault(item["entity_id"], []).append(item)
     for missing_id, references_for_id in stale_by_id.items():
         suggestion = suggest_missing_entity_replacement(
-            missing_id, known_for_suggestions, deleted_history
+            missing_id, known_for_suggestions, deleted_history, registry=registry
         )
         for item in references_for_id:
             item["replacement_suggestion"] = suggestion
