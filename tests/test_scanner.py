@@ -56,7 +56,7 @@ class ScannerTests(unittest.TestCase):
         self.temp.cleanup()
 
     def test_version_and_device_registry_diagnostics(self):
-        self.assertEqual(app.VERSION, "0.3.3")
+        self.assertEqual(app.VERSION, "0.3.4")
         devices = {
             "data": {
                 "devices": [
@@ -757,3 +757,81 @@ class DashboardRouteTests(unittest.TestCase):
         ])
         self.assertEqual(references[0]["dashboard_url"], "/energy-overview")
         self.assertTrue(references[0]["dashboard_preview_available"])
+
+
+class DeletedEntityReconciliationTests(unittest.TestCase):
+    def test_deleted_registry_identity_finds_renamed_entity_without_suffix(self):
+        deleted = {
+            "sensor.old_room_temperature": {
+                "platform": "mqtt",
+                "unique_id": "mqtt-room-temp-01",
+                "device_id": "device-room-01",
+                "config_entry_id": "entry-mqtt",
+                "modified_at": "2026-11-18T12:00:00+00:00",
+            }
+        }
+        registry = [{
+            "entity_id": "sensor.bedroom_temperature",
+            "platform": "mqtt",
+            "unique_id": "mqtt-room-temp-01",
+            "device_id": "device-room-01",
+            "config_entry_id": "entry-mqtt",
+        }]
+        result = app.suggest_missing_entity_replacement(
+            "sensor.old_room_temperature",
+            {"sensor.bedroom_temperature"},
+            deleted,
+            registry=registry,
+        )
+        self.assertEqual(result["confidence"], "high")
+        self.assertEqual(result["method"], "deleted_registry_identity")
+        self.assertEqual(result["entity_id"], "sensor.bedroom_temperature")
+        self.assertEqual(result["candidates"][0]["confidence"], "high")
+        self.assertIn("Same integration unique_id", result["candidates"][0]["identity_reason"])
+
+    def test_multiple_identity_successors_are_ambiguous_not_auto_selected(self):
+        deleted = {
+            "sensor.old_temperature": {
+                "platform": "mqtt",
+                "unique_id": "same-unique",
+            }
+        }
+        registry = [
+            {"entity_id": "sensor.temperature_a", "platform": "mqtt", "unique_id": "same-unique"},
+            {"entity_id": "sensor.temperature_b", "platform": "mqtt", "unique_id": "same-unique"},
+        ]
+        result = app.suggest_missing_entity_replacement(
+            "sensor.old_temperature",
+            {"sensor.temperature_a", "sensor.temperature_b"},
+            deleted,
+            registry=registry,
+        )
+        self.assertEqual(result["confidence"], "ambiguous")
+        self.assertTrue(result["identity_match_ambiguous"])
+        self.assertIsNone(result["entity_id"])
+        self.assertEqual(result["identity_match_count"], 2)
+
+    def test_identity_conflict_blocks_deleted_history_successor(self):
+        deleted = {
+            "sensor.old_temperature": {
+                "platform": "mqtt",
+                "unique_id": "same-unique",
+                "device_id": "device-a",
+            }
+        }
+        registry = [{
+            "entity_id": "sensor.new_temperature",
+            "platform": "mqtt",
+            "unique_id": "same-unique",
+            "device_id": "device-b",
+        }]
+        result = app.suggest_missing_entity_replacement(
+            "sensor.old_temperature",
+            {"sensor.new_temperature"},
+            deleted,
+            registry=registry,
+        )
+        self.assertEqual(result["confidence"], "name_similarity_only")
+        self.assertIsNone(result["entity_id"])
+        self.assertEqual(result["identity_match_count"], 0)
+        self.assertEqual(result["candidates"][0]["confidence"], "name_similarity_only")

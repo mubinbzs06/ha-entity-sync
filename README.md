@@ -4,7 +4,7 @@ A local Home Assistant OS app for entity reference auditing and explicitly appro
 
 ## Current build
 
-**Version 0.2.16** scans user-maintained Home Assistant configuration, Lovelace dashboards, and a small allowlist of historical storage records.
+**Version 0.3.4** scans user-maintained Home Assistant configuration, Lovelace dashboards, and a small allowlist of historical storage records.
 
 It excludes unrelated Home Assistant internals, integration/add-on implementation folders, backups, archives, databases, logs, secrets, and runtime data.
 
@@ -97,3 +97,12 @@ The app mounts Home Assistant configuration at `/homeassistant` **read-only**. S
 - Recovery review groups affected dashboard references and can open the real Home Assistant dashboard in an embedded preview.
 - After recovery, the app reports the live registry result, rescans dashboard references, and offers the live dashboard preview in the same screen.
 - Rendered-card verification is a user visual check. The app does not claim to automatically inspect card rendering inside Home Assistant's frontend.
+
+
+## Entity reconciliation and cleanup workflow (0.3.4)
+
+A missing reference is not assumed to be a dead entity. When Home Assistant retains deleted-entity registry metadata, Entity Sync compares its integration, unique ID, device ID, and config-entry ID with current registered entities. A strong identity match can reveal a renamed or recreated entity even when its new entity ID has no name similarity or numeric suffix. Conflicting identity metadata blocks that match. Multiple strong matches are reported as ambiguous and are never auto-selected.
+
+Name similarity remains a discovery hint only. The Repair Center shows the evidence and the affected configuration locations. Dashboard references include card context and a live dashboard preview when Home Assistant exposes a route. Existing configuration repair remains a per-file preview and explicit approval workflow.
+
+The cleanup sequence is: discover missing references; reconcile against deleted history and current identity; inspect all affected dashboards and configuration; preview exact changes; require a verified backup and explicit approval; apply only the approved references; then verify registry, stored configuration, and rendered dashboard separately where possible. No entity, tracker, or reference is deleted merely because it appears missing or unused. Dashboard and automation behavior must be preserved during any rework.

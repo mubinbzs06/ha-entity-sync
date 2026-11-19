@@ -1,6 +1,6 @@
 # HA Entity Sync — Build 2.13
 
-**App version: 0.2.14**
+**App version: 0.3.4**
 
 Build 2.7 adds a read-only historical reference audit while keeping active dependencies separate.
 
@@ -86,3 +86,10 @@ The old entry is quarantined under a generated temporary entity ID rather than i
 The backup excludes the recorder database but must contain the entity registry. If Supervisor reports the backup as encrypted and the archive cannot be inspected, recovery stops without changing registry entries. If automatic compensation fails, the audit record shows the verified backup slug; use Home Assistant's Supervisor backup manager to restore the backup. A backup restore may restart Home Assistant and may revert other configuration changes made after that backup.
 
 The recovery operation is intentionally limited to entity IDs. It does not change dashboard/YAML references because the original IDs are restored.
+
+
+## 0.3.4 — reconciliation before cleanup
+
+A missing reference is not a deletion recommendation. The scanner retains non-secret identity metadata from deleted entity-registry records and compares it against all current registry entries. Matching integration/platform plus unique ID, device ID, or config-entry lineage can surface a renamed or recreated successor even when the new entity ID is not a numeric-suffix variant and has little name similarity. Conflicts block a strong match; multiple strong matches are marked ambiguous and no candidate is preselected. Name similarity remains discovery-only.
+
+Repair Center displays candidate evidence and exact affected references. Dashboard references also show card context and a live dashboard preview route when available. The preview is for human inspection, not an automated rendered-card test. No new cleanup action deletes entities or trackers. Dashboard, automation, helper, script, scene, and Person-assignment changes remain reviewable, individually approved operations with verified backup and rollback.
