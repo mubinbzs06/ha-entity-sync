@@ -44,3 +44,8 @@ The scanner reads Home Assistant's Person integration storage file at .storage/p
 Statuses are distinct: available, unavailable, unknown, registered with no live state, missing from both registry and live states, and not checked when live-state access fails. Only confirmed missing trackers receive replacement candidates, using deleted entity-registry identity evidence first and name similarity as discovery-only. Findings are review-only; this release does not remove, rewrite, or ignore assignments.
 
 YAML-defined Person entries remain visible through the existing configuration-file scanner, but this phase does not yet group YAML-defined tracker references under a Person record. That requires a separate parser/merge step and must preserve YAML source locations. No .storage files are edited.
+
+
+## 0.3.6 — unified dependency map
+
+The read-only scanner now normalizes discovered references into a single dependency graph. Entity nodes aggregate occurrence counts and source types; dependency edges retain source category, path, line, usage role, and an explicitly identified YAML parent object when available. Dashboard edges carry the existing health and card-context evidence. Stored Person tracker assignments are represented as first-class dependencies with their status and replacement evidence. Historical records remain explicitly historical and are not counted as active configuration dependencies. This is a normalized view over the existing scanner evidence, not a new parser for every Home Assistant schema; unknown parent context remains blank rather than guessed. No configuration, dashboard, registry, or Person storage is modified.
