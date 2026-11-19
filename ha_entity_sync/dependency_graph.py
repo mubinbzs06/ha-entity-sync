@@ -137,6 +137,7 @@ def build_dependency_graph(references, stale_references, dashboard_health=None,
                 "active": category in {"Dashboard", "Active configuration"},
                 "historical": category == "Historical",
                 "stale_candidate": bool(stale),
+                "replacement_suggestion": reference.get("replacement_suggestion"),
             }
             health = health_by_key.get((entity_id, path))
             if health:
