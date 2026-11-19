@@ -6,7 +6,6 @@ It normalizes already-discovered references and preserves their source evidence.
 import re
 from pathlib import PurePosixPath
 
-ENTITY_LINE_RE = re.compile(r"(?<![A-Za-z0-9_])[a-z0-9_]+\\.[a-z0-9_]+(?![A-Za-z0-9_])")
 YAML_OBJECT_RE = re.compile(r"^\\s*-\\s*(id|alias|name):\\s*(.*?)\\s*$", re.IGNORECASE)
 
 
@@ -78,7 +77,7 @@ def _parent_object(path, line_number, source_text):
     for index in range(line_number - 1, max(-1, line_number - 151), -1):
         match = YAML_OBJECT_RE.match(lines[index])
         if match:
-            value = match.group(2).strip().strip("\\"'")[:160]
+            value = match.group(2).strip().strip(chr(34) + chr(39))[:160]
             if value:
                 return {"key": match.group(1).lower(), "value": value}
     return None
