@@ -12,7 +12,7 @@ class DependencyGraphTests(unittest.TestCase):
             {
                 "entity_id": "sensor.room_temp", "file": "automations.yaml",
                 "category": "Active configuration", "matches": [
-                    {"line": 7, "full_text": "        entity_id: sensor.room_temp"}
+                    {"line": 6, "full_text": "          entity_id: sensor.room_temp"}
                 ]
             },
             {
