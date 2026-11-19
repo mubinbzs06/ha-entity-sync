@@ -912,5 +912,38 @@ class PersonTrackerReconciliationTests(unittest.TestCase):
         self.assertEqual(result["persons"], [])
 
 
+
+class YamlPersonTrackerReferenceTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        (self.root / ".storage").mkdir()
+        registry = {"data": {"entities": [{"entity_id": "person.mubin"}]}}
+        (self.root / ".storage" / "core.entity_registry").write_text(json.dumps(registry), encoding="utf-8")
+        self.config_patch = patch.object(app, "CONFIG", self.root)
+        self.registry_patch = patch.object(app, "REGISTRY", self.root / ".storage" / "core.entity_registry")
+        self.config_patch.start()
+        self.registry_patch.start()
+
+    def tearDown(self):
+        self.config_patch.stop()
+        self.registry_patch.stop()
+        self.temp.cleanup()
+
+    def test_yaml_person_device_tracker_reference_is_audited(self):
+        (self.root / "configuration.yaml").write_text(
+            "person:\\n"
+            "  - name: Mubin\\n"
+            "    id: mubin\\n"
+            "    device_trackers:\\n"
+            "      - device_tracker.old_phone\\n",
+            encoding="utf-8",
+        )
+        report = app.scan()
+        match = next(item for item in report["potentially_stale"] if item["entity_id"] == "device_tracker.old_phone")
+        self.assertEqual(match["category"], "Active configuration")
+        self.assertEqual(match["broken_status"], "unverified_live_state_unavailable")
+
+
 if __name__ == "__main__":
     unittest.main()
