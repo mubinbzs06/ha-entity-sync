@@ -563,8 +563,6 @@ class ScannerTests(unittest.TestCase):
         )
 
 
-if __name__ == "__main__":
-    unittest.main()
 
     def test_dashboard_health_classifies_available_unavailable_unknown_and_missing(self):
         references = [
@@ -912,3 +910,7 @@ class PersonTrackerReconciliationTests(unittest.TestCase):
         result = app.load_person_assignments()
         self.assertFalse(result["available"])
         self.assertEqual(result["persons"], [])
+
+
+if __name__ == "__main__":
+    unittest.main()
